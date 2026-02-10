@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>⚡ טריוויה על סטאלין - מהדורת ברק!</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Heebo:wght@400;700;900&family=Rubik:wght@400;700;900&display=swap');
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'Heebo', sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+      background-size: 200% 200%;
+      animation: gradientShift 8s ease infinite;
+      color: #1a1a1a;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow-x: hidden;
+      position: relative;
+    }
+    @keyframes gradientShift {
+      0%, 100% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+    }
+    .particle {
+      position: fixed;
+      width: 10px;
+      height: 10px;
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      pointer-events: none;
+      animation: float 8s infinite;
+    }
+    @keyframes float {
+      0%, 100% { transform: translateY(0) translateX(0); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { transform: translateY(-100vh) translateX(50px); opacity: 0; }
+    }
+    .container {
+      max-width: 900px;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+      animation: slideInDown 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+    @keyframes slideInDown {
+      from {
+        opacity: 0;
+        transform: translateY(-50px) scale(0.8);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .title {
+      font-family: 'Rubik', sans-serif;
+      font-size: 3.5rem;
+      font-weight: 900;
+      background: linear-gradient(45deg, #fff, #ffd700);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+      margin-bottom: 10px;
+      letter-spacing: 2px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    .subtitle {
+      font-size: 1.2rem;
+      color: #fff;
+      font-weight: 700;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    }
+    .game-card {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 30px;
+      padding: 40px;
+      box-shadow: 
+        0 30px 80px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      position: relative;
+      overflow: hidden;
+      animation: slideInUp 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55) 0.2s both;
+    }
+    @keyframes slideInUp {
+      from {
+        opacity: 0;
+        transform: translateY(50px) scale(0.9);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .game-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 6px;
+      background: linear-gradient(90deg, #667eea, #764ba2, #f093fb, #667eea);
+      background-size: 200% 100%;
+      animation: borderSlide 3s linear infinite;
+    }
+    @keyframes borderSlide {
+      0% { background-position: 0% 0%; }
+      100% { background-position: 200% 0%; }
+    }
+    .stats-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 25px;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      border-radius: 20px;
+      box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+    }
+    .stat-item {
+      text-align: center;
+      flex: 1;
+    }
+    .stat-label {
+      font-size: 0.85rem;
+      color: rgba(255, 255, 255, 0.8);
+      margin-bottom: 5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .stat-value {
+      font-family: 'Rubik', sans-serif;
+      font-size: 1.8rem;
+      font-weight: 900;
+      color: #fff;
+      text-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+    }
+    .timer-container {
+      margin-bottom: 25px;
+    }
+    .timer-bar {
+      width: 100%;
+      height: 12px;
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      overflow: hidden;
+      position: relative;
+    }
+    .timer-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4ade80, #22c55e);
+      border-radius: 10px;
+      transition: width 0.1s linear, background 0.3s ease;
+      box-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+    }
+    .timer-fill.warning {
+      background: linear-gradient(90deg, #fbbf24, #f59e0b);
+      animation: warningPulse 0.5s ease-in-out infinite;
+    }
+    .timer-fill.danger {
+      background: linear-gradient(90deg, #ef4444, #dc2626);
+      animation: dangerShake 0.2s ease-in-out infinite;
+    }
+    @keyframes warningPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    @keyframes dangerShake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-2px); }
+      75% { transform: translateX(2px); }
+    }
+    .timer-text {
+      text-align: center;
+      margin-top: 8px;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #4ade80;
+      transition: color 0.3s ease;
+    }
+    .timer-text.warning {
+      color: #f59e0b;
+    }
+    .timer-text.danger {
+      color: #ef4444;
+      animation: dangerBlink 0.5s ease-in-out infinite;
+    }
+    @keyframes dangerBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .progress-bar {
+      width: 100%;
+      height: 8px;
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      overflow: hidden;
+      margin-bottom: 25px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      border-radius: 10px;
+      transition: width 0.5s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      box-shadow: 0 0 15px rgba(102, 126, 234, 0.6);
+    }
+    .question-container {
+      margin-bottom: 25px;
+    }
+    .question-number {
+      font-size: 0.9rem;
+      color: #667eea;
+      font-weight: 900;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+    }
+    .question {
+      font-family: 'Rubik', sans-serif;
+      font-size: 1.7rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      line-height: 1.4;
+      margin-bottom: 10px;
+    }
+    .question-hint {
+      font-size: 0.95rem;
+      color: #667eea;
+      font-style: italic;
+      opacity: 0.9;
+    }
+    .answers {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-bottom: 25px;
+    }
+    .answer-btn {
+      background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+      border: 3px solid transparent;
+      border-radius: 18px;
+      padding: 18px 25px;
+      font-family: 'Heebo', sans-serif;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #1a1a1a;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      text-align: right;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    }
+    .answer-btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 0;
+      height: 100%;
+      background: linear-gradient(90deg, rgba(102, 126, 234, 0.1), transparent);
+      transition: width 0.3s ease;
+    }
+    .answer-btn:hover:not(:disabled) {
+      border-color: #667eea;
+      transform: translateX(-8px) scale(1.02);
+      box-shadow: 0 8px 25px rgba(102, 126, 234, 0.3);
+    }
+    .answer-btn:hover:not(:disabled)::before {
+      width: 100%;
+    }
+    .answer-btn.correct {
+      background: linear-gradient(135deg, #4ade80, #22c55e);
+      border-color: #16a34a;
+      color: #fff;
+      animation: correctBounce 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      box-shadow: 0 10px 30px rgba(34, 197, 94, 0.4);
+    }
+    .answer-btn.wrong {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      border-color: #b91c1c;
+      color: #fff;
+      animation: wrongShake 0.5s ease;
+      box-shadow: 0 10px 30px rgba(239, 68, 68, 0.4);
+    }
+    .answer-btn:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+    @keyframes correctBounce {
+      0%, 100% { transform: scale(1); }
+      25% { transform: scale(1.1); }
+      50% { transform: scale(0.95); }
+      75% { transform: scale(1.05); }
+    }
+    @keyframes wrongShake {
+      0%, 100% { transform: translateX(0); }
+      10%, 30%, 50%, 70%, 90% { transform: translateX(-10px); }
+      20%, 40%, 60%, 80% { transform: translateX(10px); }
+    }
+    .feedback {
+      padding: 20px;
+      border-radius: 18px;
+      margin-bottom: 20px;
+      font-size: 1.1rem;
+      text-align: center;
+      font-weight: 700;
+      opacity: 0;
+      transform: scale(0.8);
+      transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+    .feedback.show {
+      opacity: 1;
+      transform: scale(1);
+    }
+    .feedback.correct {
+      background: linear-gradient(135deg, rgba(74, 222, 128, 0.2), rgba(34, 197, 94, 0.2));
+      border: 3px solid #22c55e;
+      color: #166534;
+    }
+    .feedback.wrong {
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(220, 38, 38, 0.2));
+      border: 3px solid #dc2626;
+      color: #991b1b;
+    }
+    .next-btn {
+      width: 100%;
+      padding: 20px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border: none;
+      border-radius: 18px;
+      color: #fff;
+      font-family: 'Rubik', sans-serif;
+      font-size: 1.3rem;
+      font-weight: 900;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    .next-btn.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .next-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 15px 40px rgba(102, 126, 234, 0.6);
+    }
+    .next-btn:active {
+      transform: translateY(0);
+    }
+    .results {
+      text-align: center;
+      display: none;
+      animation: zoomIn 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    }
+    .results.show {
+      display: block;
+    }
+    @keyframes zoomIn {
+      from {
+        opacity: 0;
+        transform: scale(0.5);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1);
+      }
+    }
+    .results-title {
+      font-family: 'Rubik', sans-serif;
+      font-size: 3rem;
+      font-weight: 900;
+      background: linear-gradient(45deg, #667eea, #764ba2, #f093fb);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 20px;
+      animation: rainbowText 3s ease infinite;
+    }
+    @keyframes rainbowText {
+      0%, 100% { filter: hue-rotate(0deg); }
+      50% { filter: hue-rotate(30deg); }
+    }
+    .results-score {
+      font-size: 4.5rem;
+      font-weight: 900;
+      background: linear-gradient(45deg, #fbbf24, #f59e0b);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 20px;
+      animation: scoreCount 2s ease-out;
+    }
+    @keyframes scoreCount {
+      from { transform: scale(0); }
+      to { transform: scale(1); }
+    }
+    .results-message {
+      font-size: 1.4rem;
+      color: #1a1a1a;
+      margin-bottom: 30px;
+      line-height: 1.6;
+    }
+    .leaderboard {
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1), rgba(118, 75, 162, 0.1));
+      border-radius: 20px;
+      padding: 25px;
+      margin-bottom: 30px;
+      border: 2px solid rgba(102, 126, 234, 0.3);
+    }
+    .leaderboard-title {
+      font-size: 1.5rem;
+      font-weight: 900;
+      color: #667eea;
+      margin-bottom: 15px;
+      text-align: center;
+    }
+    .leaderboard-list {
+      list-style: none;
+    }
+    .leaderboard-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 12px 15px;
+      margin-bottom: 8px;
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 12px;
+      font-weight: 700;
+      transition: transform 0.3s ease;
+    }
+    .leaderboard-item:hover {
+      transform: translateX(-5px);
+    }
+    .leaderboard-item.current {
+      background: linear-gradient(135deg, #fbbf24, #f59e0b);
+      color: #fff;
+      box-shadow: 0 5px 20px rgba(251, 191, 36, 0.4);
+    }
+    .rank-medal {
+      font-size: 1.3rem;
+      margin-left: 10px;
+    }
+    .restart-btn {
+      padding: 18px 50px;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      border: none;
+      border-radius: 18px;
+      color: #fff;
+      font-family: 'Rubik', sans-serif;
+      font-size: 1.3rem;
+      font-weight: 900;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+      text-transform: uppercase;
+      letter-spacing: 2px;
+      box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+    }
+    .restart-btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 15px 40px rgba(102, 126, 234, 0.6);
+    }
+    @media (max-width: 768px) {
+      .title {
+        font-size: 2.5rem;
+      }
+      .game-card {
+        padding: 25px;
+      }
+      .question {
+        font-size: 1.4rem;
+      }
+      .answer-btn {
+        padding: 15px 20px;
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="particle" style="left: 10%; animation-delay: 0s;"></div>
+  <div class="particle" style="left: 30%; animation-delay: 2s;"></div>
+  <div class="particle" style="left: 50%; animation-delay: 4s;"></div>
+  <div class="particle" style="left: 70%; animation-delay: 1s;"></div>
+  <div class="particle" style="left: 90%; animation-delay: 3s;"></div>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">⚡ טריוויה: סטאלין</h1>
+      <p class="subtitle">בדקו את הידע שלכם במהירות הבזק!</p>
+    </div>
+    <div class="game-card">
+      <div id="game-screen">
+        <div class="stats-bar">
+          <div class="stat-item">
+            <div class="stat-label">ניקוד</div>
+            <div class="stat-value" id="score">0</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">נכונות</div>
+            <div class="stat-value" id="correct">0</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">שאלה</div>
+            <div class="stat-value"><span id="current">1</span>/<span id="total">15</span></div>
+          </div>
+        </div>
+        <div class="timer-container">
+          <div class="timer-bar">
+            <div class="timer-fill" id="timer-fill"></div>
+          </div>
+          <div class="timer-text" id="timer-text">⏱️ 30 שניות</div>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress"></div>
+        </div>
+        <div class="question-container">
+          <div class="question-number" id="question-number">שאלה 1</div>
+          <h2 class="question" id="question"></h2>
+          <p class="question-hint" id="hint"></p>
+        </div>
+        <div class="answers" id="answers"></div>
+        <div class="feedback" id="feedback"></div>
+        <button class="next-btn" id="next-btn">השאלה הבאה ⚡</button>
+      </div>
+      <div class="results" id="results">
+        <h2 class="results-title">🏆 סיימת!</h2>
+        <div class="results-score" id="final-score"></div>
+        <p class="results-message" id="results-message"></p>
+        <div class="leaderboard" id="leaderboard-container">
+          <h3 class="leaderboard-title">🏆 טבלת שיאים</h3>
+          <ul class="leaderboard-list" id="leaderboard"></ul>
+        </div>
+        <button class="restart-btn" onclick="location.reload()">שחק שוב 🔄</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(type) {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      if (type === 'correct') {
+        oscillator.frequency.setValueAtTime(523.25, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(783.99, audioContext.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+      } else if (type === 'wrong') {
+        oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.2);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.2);
+      } else if (type === 'tick') {
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.05);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.05);
+      } else if (type === 'timeout') {
+        oscillator.frequency.setValueAtTime(150, audioContext.currentTime);
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.5);
+      }
+    }
+    const questions = [
+      {
+        question: "מה משמעות השם 'סטאלין' ברוסית?",
+        hint: "רמז: קשור לחוזק ולמתכת",
+        answers: ["איש הפלדה", "האיש האדום", "המנהיג הנצחי", "הדוב הרוסי"],
+        correct: 0
+      },
+      {
+        question: "באיזו מדינה נולד סטאלין?",
+        hint: "רמז: לא ברוסיה!",
+        answers: ["גאורגיה", "רוסיה", "אוקראינה", "ארמניה"],
+        correct: 0
+      },
+      {
+        question: "כמה אנשים מתו ברעב המתוכנן (הולודומור) באוקראינה?",
+        hint: "רמז: אירוע קטסטרופלי ב-1932-1933",
+        answers: ["3-7 מיליון", "500 אלף", "15 מיליון", "מיליון אחד"],
+        correct: 0
+      },
+      {
+        question: "מה היה שמו האמיתי של סטאלין?",
+        hint: "רמז: שם גאורגי ארוך",
+        answers: ["יוסף ויסריונוביץ' ג'וגשווילי", "ניקולאי איבנוב", "אלכסנדר פטרוב", "מיכאיל קוזנצוב"],
+        correct: 0
+      },
+      {
+        question: "באיזה קרב מכריע הביסה ברית המועצות את הגרמנים?",
+        hint: "רמז: קרב אכזרי עם 2 מיליון הרוגים",
+        answers: ["סטלינגרד", "מוסקבה", "לנינגרד", "קורסק"],
+        correct: 0
+      },
+      {
+        question: "כמה סובייטים בערך מתו במלחמת העולם השנייה?",
+        hint: "רמז: המספר הגבוה ביותר מכל מדינה",
+        answers: ["27 מיליון", "10 מיליון", "50 מיליון", "5 מיליון"],
+        correct: 0
+      },
+      {
+        question: "מה קרה ל-70% מהצמרת הקומוניסטית בטיהורים הגדולים?",
+        hint: "רמז: 1936-1938",
+        answers: ["הוצאו להורג", "נשלחו לגולאג", "ברחו למערב", "התפטרו"],
+        correct: 0
+      },
+      {
+        question: "עם מי חתם סטאלין הסכם אי-תוקפנות ב-1939?",
+        hint: "רמז: הסכם מולוטוב-ריבנטרופ",
+        answers: ["היטלר", "צ'רצ'יל", "רוזוולט", "מוסוליני"],
+        correct: 0
+      },
+      {
+        question: "מה היה מקצועו של אביו של סטאלין?",
+        hint: "רמז: עבודת יד פשוטה",
+        answers: ["סנדלר", "נגר", "חקלאי", "חייט"],
+        correct: 0
+      },
+      {
+        question: "איזו ציטוט מפורסם מיוחס לסטאלין?",
+        hint: "רמז: על משמעות המספרים",
+        answers: ['"אדם אחד - טרגדיה. מיליון - סטטיסטיקה"', '"העתיד שייך לנו"', '"הניצחון יהיה שלנו"', '"העם הוא הכוח"'],
+        correct: 0
+      },
+      {
+        question: "באיזו שנה מת סטאלין?",
+        hint: "רמז: בתחילת שנות ה-50",
+        answers: ["1953", "1945", "1960", "1950"],
+        correct: 0
+      },
+      {
+        question: "מה היה שם המשטרה החשאית הסובייטית בתקופת הטיהורים?",
+        hint: "רמז: ארבע אותיות באנגלית",
+        answers: ["NKVD", "KGB", "FSB", "GRU"],
+        correct: 0
+      },
+      {
+        question: "איזו מדינה חילק סטאלין עם היטלר ב-1939?",
+        hint: "רמז: מדינה בין גרמניה לברית המועצות",
+        answers: ["פולין", "פינלנד", "רומניה", "צ'כוסלובקיה"],
+        correct: 0
+      },
+      {
+        question: "מה שם מחנות העבודה הסובייטיים בתקופת סטאלין?",
+        hint: "רמז: מונח רוסי מפורסם",
+        answers: ["גולאג", "סיביר", "קולחוז", "סובחוז"],
+        correct: 0
+      },
+      {
+        question: "איזו תוכנית כלכלית הנהיג סטאלין לתיעוש מהיר?",
+        hint: "רמז: תוכניות של 5 שנים",
+        answers: ["תוכניות החומש", "תוכנית מרשל", "ניו דיל", "הקפיצה הגדולה"],
+        correct: 0
+      }
+    ];
+    let currentQuestion = 0;
+    let score = 0;
+    let correctAnswers = 0;
+    let answered = false;
+    let timeLeft = 30;
+    let timerInterval = null;
+    const questionEl = document.getElementById('question');
+    const hintEl = document.getElementById('hint');
+    const answersEl = document.getElementById('answers');
+    const feedbackEl = document.getElementById('feedback');
+    const nextBtn = document.getElementById('next-btn');
+    const scoreEl = document.getElementById('score');
+    const correctEl = document.getElementById('correct');
+    const currentEl = document.getElementById('current');
+    const totalEl = document.getElementById('total');
+    const progressEl = document.getElementById('progress');
+    const questionNumberEl = document.getElementById('question-number');
+    const gameScreen = document.getElementById('game-screen');
+    const resultsScreen = document.getElementById('results');
+    const finalScoreEl = document.getElementById('final-score');
+    const resultsMessageEl = document.getElementById('results-message');
+    const timerFillEl = document.getElementById('timer-fill');
+    const timerTextEl = document.getElementById('timer-text');
+    totalEl.textContent = questions.length;
+    function startTimer() {
+      timeLeft = 30;
+      updateTimerDisplay();
+      timerInterval = setInterval(() => {
+        timeLeft--;
+        updateTimerDisplay();
+        if (timeLeft <= 10 && timeLeft > 5) {
+          playSound('tick');
+        } else if (timeLeft <= 5 && timeLeft > 0) {
+          playSound('tick');
+        }
+        if (timeLeft <= 0) {
+          clearInterval(timerInterval);
+          handleTimeout();
+        }
+      }, 1000);
+    }
+    function updateTimerDisplay() {
+      const percentage = (timeLeft / 30) * 100;
+      timerFillEl.style.width = percentage + '%';
+      timerTextEl.textContent = `⏱️ ${timeLeft} שניות`;
+      timerFillEl.classList.remove('warning', 'danger');
+      timerTextEl.classList.remove('warning', 'danger');
+      if (timeLeft <= 10 && timeLeft > 5) {
+        timerFillEl.classList.add('warning');
+        timerTextEl.classList.add('warning');
+      } else if (timeLeft <= 5) {
+        timerFillEl.classList.add('danger');
+        timerTextEl.classList.add('danger');
+      }
+    }
+    function handleTimeout() {
+      if (answered) return;
+      playSound('timeout');
+      answered = true;
+      const buttons = answersEl.querySelectorAll('.answer-btn');
+      buttons.forEach(btn => btn.disabled = true);
+      const q = questions[currentQuestion];
+      buttons[q.correct].classList.add('correct');
+      feedbackEl.textContent = `⏰ הזמן נגמר! התשובה הנכונה: ${q.answers[q.correct]}`;
+      feedbackEl.className = 'feedback wrong show';
+      nextBtn.classList.add('show');
+    }
+    function loadQuestion() {
+      const q = questions[currentQuestion];
+      questionEl.textContent = q.question;
+      hintEl.textContent = q.hint;
+      questionNumberEl.textContent = `שאלה ${currentQuestion + 1}`;
+      currentEl.textContent = currentQuestion + 1;
+      answersEl.innerHTML = '';
+      q.answers.forEach((answer, index) => {
+        const btn = document.createElement('button');
+        btn.className = 'answer-btn';
+        btn.textContent = answer;
+        btn.onclick = () => checkAnswer(index);
+        answersEl.appendChild(btn);
+      });
+      feedbackEl.className = 'feedback';
+      nextBtn.className = 'next-btn';
+      answered = false;
+      updateProgress();
+      startTimer();
+    }
+    function checkAnswer(selected) {
+      if (answered) return;
+      answered = true;
+      clearInterval(timerInterval);
+      const q = questions[currentQuestion];
+      const buttons = answersEl.querySelectorAll('.answer-btn');
+      buttons.forEach(btn => btn.disabled = true);
+      const timeBonus = Math.floor(timeLeft * 2);
+      if (selected === q.correct) {
+        buttons[selected].classList.add('correct');
+        playSound('correct');
+        const points = 100 + timeBonus;
+        feedbackEl.textContent = `✅ נכון מצוין! +${points} נקודות (${timeBonus} בונוס מהירות)`;
+        feedbackEl.className = 'feedback correct show';
+        score += points;
+        correctAnswers++;
+        scoreEl.textContent = score;
+        correctEl.textContent = correctAnswers;
+      } else {
+        buttons[selected].classList.add('wrong');
+        buttons[q.correct].classList.add('correct');
+        playSound('wrong');
+        feedbackEl.textContent = `❌ לא נכון. התשובה: ${q.answers[q.correct]}`;
+        feedbackEl.className = 'feedback wrong show';
+      }
+      nextBtn.classList.add('show');
+    }
+    function nextQuestion() {
+      currentQuestion++;
+      if (currentQuestion < questions.length) {
+        loadQuestion();
+      } else {
+        showResults();
+      }
+    }
+    function updateProgress() {
+      const progress = ((currentQuestion + 1) / questions.length) * 100;
+      progressEl.style.width = progress + '%';
+    }
+    function saveToLeaderboard(score) {
+      let leaderboard = JSON.parse(localStorage.getItem('stalinLeaderboard') || '[]');
+      const timestamp = new Date().toLocaleString('he-IL');
+      leaderboard.push({ score, timestamp });
+      leaderboard.sort((a, b) => b.score - a.score);
+      leaderboard = leaderboard.slice(0, 5);
+      localStorage.setItem('stalinLeaderboard', JSON.stringify(leaderboard));
+      return leaderboard;
+    }
+    function showResults() {
+      clearInterval(timerInterval);
+      gameScreen.style.display = 'none';
+      resultsScreen.classList.add('show');
+      const percentage = (correctAnswers / questions.length) * 100;
+      finalScoreEl.textContent = `${score} נקודות`;
+      let message = '';
+      if (percentage === 100) {
+        message = '🌟 מושלם מושלם! אתה מלך/ת הטריוויה!<br>אתה יודע הכל על סטאלין!';
+      } else if (percentage >= 80) {
+        message = '🎉 מדהים! ניקוד עילאי!<br>ידע מרשים על ההיסטוריה!';
+      } else if (percentage >= 60) {
+        message = '👍 טוב מאוד! יש לך בסיס חזק.<br>עוד קצת תרגול ותהיה אלוף!';
+      } else if (percentage >= 40) {
+        message = '📚 לא רע! יש מה לשפר.<br>חזור על החומר ונסה שוב.';
+      } else {
+        message = '💪 אל תיכנע! זה מאתגר.<br>למד עוד קצת ותראה שיפור!';
+      }
+      resultsMessageEl.innerHTML = message;
+      const leaderboard = saveToLeaderboard(score);
+      const leaderboardEl = document.getElementById('leaderboard');
+      leaderboardEl.innerHTML = '';
+      leaderboard.forEach((entry, index) => {
+        const li = document.createElement('li');
+        li.className = 'leaderboard-item';
+        if (entry.score === score && entry.timestamp === leaderboard.find(e => e.score === score).timestamp) {
+          li.classList.add('current');
+        }
+        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🏅';
+        li.innerHTML = `
+          <span><span class="rank-medal">${medal}</span> #${index + 1}</span>
+          <span>${entry.score} נקודות</span>
+        `;
+        leaderboardEl.appendChild(li);
+      });
+    }
+    nextBtn.addEventListener('click', nextQuestion);
+    loadQuestion();
+  </script>
+</body>
+</html>
