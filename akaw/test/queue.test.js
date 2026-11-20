@@ -7,11 +7,11 @@ const base = { stage: 'brief', status: 'idle', createdAt: '2026-11-01T00:00:00Z'
 test('tiers, then priority, then sprint end, then longest wait; pins first', () => {
   const cards = [
     { ...base, id: 'mech', spec: { newMechanic: true } },
-    { ...base, id: 'variant-low', jiraPriority: 'Low' },
-    { ...base, id: 'variant-high', jiraPriority: 'High' },
+    { ...base, id: 'variant-low', priority: 'Low' },
+    { ...base, id: 'variant-high', priority: 'High' },
     { ...base, id: 'close', stage: 'close' },
     { ...base, id: 'fix', feedbackFix: true },
-    { ...base, id: 'variant-high-sprint', jiraPriority: 'High', sprintEnd: '2026-11-21' },
+    { ...base, id: 'variant-high-sprint', priority: 'High', sprintEnd: '2026-11-21' },
     { ...base, id: 'pinned', spec: { newMechanic: true }, pinned: true },
   ];
   assert.deepEqual(orderQueue(cards).map((c) => c.id), ['pinned', 'fix', 'close', 'variant-high-sprint', 'variant-high', 'variant-low', 'mech']);

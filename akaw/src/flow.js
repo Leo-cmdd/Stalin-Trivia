@@ -3,13 +3,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { STAGE, STAGES, GATES, stageIndex } from './stages.js';
+import { STAGE, STAGES, GATES, STAGE_ALIASES, stageIndex, stagesFor } from './stages.js';
 import { parseIdea, specSubject } from './spec.js';
 import { evaluate, validateRule, validateException } from './guardrails.js';
 import { computeTier, orderQueue, isRunnable } from './queue.js';
-import { runCommand } from './runner.js';
-import * as jira from './integrations/jira.js';
-import * as slack from './integrations/slack.js';
+import { loadAppConfig } from './appconfig.js';
+import { runStep, describeStep } from './runners.js';
+import { tracker as trackerFor, applyFilter } from './providers/trackers.js';
+import { chat as chatFor } from './providers/chat.js';
+import { generate, generatorConfigured, GENERATOR_PROVIDERS } from './generators.js';
 
 const now = () => new Date().toISOString();
 const APPROVE_RE = /\b(approved?|lgtm|looks good|good to go|ok to go|ship it|go ahead)\b/i;
@@ -30,7 +32,26 @@ export class Flow {
     this.cfg = cfg;
     this.library = library;
     this.running = new Set();
-    this.lastJiraPreview = null;
+    this.lastTaskPreview = null;
+    this.app = cfg.app || loadAppConfig({ file: null, env: cfg.env || {} });
+    this.trackerConf = this.app.tracker;
+    this.tracker = trackerFor(this.trackerConf);
+    this.migrate();
+  }
+
+  get trackerName() { return this.trackerConf.provider === 'none' ? 'Task' : this.tracker.name; }
+  get trackerLive() { return this.tracker.configured(this.trackerConf, this.cfg.env || {}); }
+
+  // Cards saved before trackers were pluggable used jiraKey / jiraPriority and jira stage ids.
+  migrate() {
+    let changed = false;
+    for (const c of this.cards) {
+      if (c.jiraKey !== undefined && c.taskKey === undefined) { c.taskKey = c.jiraKey; c.priority = c.jiraPriority ?? null; delete c.jiraKey; delete c.jiraPriority; changed = true; }
+      if (STAGE_ALIASES[c.stage]) { c.stage = STAGE_ALIASES[c.stage]; changed = true; }
+      for (const l of c.log || []) if (STAGE_ALIASES[l.stage]) l.stage = STAGE_ALIASES[l.stage];
+      c.generations ||= [];
+    }
+    if (changed) this.save();
   }
 
   // ---- collections --------------------------------------------------------
@@ -115,7 +136,7 @@ export class Flow {
     };
   }
 
-  createCard({ title, gameId, idea = '', overrides = {}, kit = [], jiraKey = null, jiraPriority = null, sprintEnd = null, stage = 'brief' }, by) {
+  createCard({ title, gameId, idea = '', overrides = {}, kit = [], taskKey = null, taskUrl = null, priority = null, sprintEnd = null, stage = 'brief' }, by) {
     if (!title || !String(title).trim()) throw new Error('A card needs a title');
     if (stage === 'brief' && !gameId) throw new Error('Pick the game');
     const game = this.game(gameId);
@@ -127,8 +148,9 @@ export class Flow {
       idea,
       overrides,
       kit,
-      jiraKey,
-      jiraPriority,
+      taskKey,
+      taskUrl,
+      priority,
       sprintEnd,
       stage,
       status: 'idle',
@@ -157,12 +179,14 @@ export class Flow {
       qa: null,
       exportReceipt: null,
       commandRuns: [],
+      generations: [],
+      previews: [],
       log: [],
     };
     if (idea) card.spec = parseIdea(idea, this.games, { gameId, title, overrides });
     this.cards.push(card);
-    this.log(card, `Card created${jiraKey ? ` from ${jiraKey}` : ''}`, by);
-    this.store.audit(by, 'card.create', { cardId: card.id, title: card.title, gameId, jiraKey });
+    this.log(card, `Card created${taskKey ? ` from ${this.trackerName} ${taskKey}` : ''}`, by);
+    this.store.audit(by, 'card.create', { cardId: card.id, title: card.title, gameId, taskKey });
     this.save();
     return card;
   }
@@ -222,6 +246,7 @@ export class Flow {
   async drive(card, by) {
     if (this.running.has(card.id)) return card;
     this.running.add(card.id);
+    const before = `${card.stage}:${card.status}:${card.needs}`;
     card.status = 'running';
     try {
       for (let i = 0; i < 25; i++) {
@@ -236,6 +261,9 @@ export class Flow {
       if (card.status === 'running') card.status = 'idle';
       this.save();
     }
+    if (['needs-you', 'blocked'].includes(card.status) && `${card.stage}:${card.status}:${card.needs}` !== before) {
+      await this.notify(card.status, card, `${card.status === 'blocked' ? 'Blocked' : 'Needs you'}: ${card.title} (${card.id}) at ${STAGE[card.stage].label}. ${card.needs || ''}`, by);
+    }
     return card;
   }
 
@@ -243,8 +271,8 @@ export class Flow {
   async step(card, by) {
     const s = card.stage;
     switch (s) {
-      case 'jira':
-        this.setStage(card, 'prep', 'akaw', 'Queued from Jira');
+      case 'intake':
+        this.setStage(card, 'prep', 'akaw', `Queued from ${this.trackerName}`);
         return true;
 
       case 'prep':
@@ -266,12 +294,11 @@ export class Flow {
       case 'draft': {
         const a = card.artifacts;
         if (!a.draftUrl && !a.screenshots.length) {
-          const cmd = this.cfg.flow.commands.draft;
-          if (!cmd) { this.wait(card, 'needs-you', 'Attach the draft link and screenshots (or set AKAW_CMD_DRAFT)'); return false; }
-          const r = await this.runFlowCommand(card, 'draft', cmd, by);
-          if (r.code !== 0) { this.wait(card, 'blocked', `Draft command failed (exit ${r.code})`); return false; }
+          if (this.app.steps.draft.runner === 'manual') { this.wait(card, 'needs-you', 'Attach the draft link and screenshots (or set a draft runner in akaw.config.json)'); return false; }
+          const r = await this.runFlowStep(card, 'draft', by);
+          if (r.code !== 0) { this.wait(card, 'blocked', `Draft step failed (${r.runner}, exit ${r.code})`); return false; }
           this.applyResult(card, r.result);
-          if (!a.draftUrl && !a.screenshots.length) { this.wait(card, 'needs-you', 'Draft command ran but returned no draft link or screenshots'); return false; }
+          if (!a.draftUrl && !a.screenshots.length) { this.wait(card, 'needs-you', 'The draft step ran but returned no draft link or screenshots'); return false; }
         }
         this.setStage(card, 'concept_lock', 'akaw', 'Draft ready → Concept lock');
         this.evaluateCard(card);
@@ -282,19 +309,17 @@ export class Flow {
       case 'art': {
         if (!card.spec?.fields?.needsArt?.value) { this.setStage(card, 'build', 'akaw', 'No art needed → Build'); return true; }
         if (card.credits.artDone) { this.setStage(card, 'build', 'akaw', 'Art done → Build'); return true; }
-        const left = (card.credits.ceiling ?? 0) - card.credits.spent;
-        this.wait(card, 'needs-you', `Generate art inside the ceiling (${left} of ${card.credits.ceiling ?? 0} credits left). Record credits as you spend, then press Art done.`);
+        this.wait(card, 'needs-you', `Generate art inside the ${card.credits.ceiling ?? 0}-credit ceiling (or record credits spent elsewhere), then press Art done.`);
         return false;
       }
 
       case 'build': {
         if (!card.artifacts.buildPath) {
-          const cmd = this.cfg.flow.commands.build;
-          if (!cmd) { this.wait(card, 'needs-you', 'Attach the build (a local file or folder path), or set AKAW_CMD_BUILD'); return false; }
-          const r = await this.runFlowCommand(card, 'build', cmd, by);
-          if (r.code !== 0) { this.wait(card, 'blocked', `Build command failed (exit ${r.code})`); return false; }
+          if (this.app.steps.build.runner === 'manual') { this.wait(card, 'needs-you', 'Attach the build (a local file or folder path), or set a build runner in akaw.config.json'); return false; }
+          const r = await this.runFlowStep(card, 'build', by);
+          if (r.code !== 0) { this.wait(card, 'blocked', `Build step failed (${r.runner}, exit ${r.code})`); return false; }
           this.applyResult(card, r.result);
-          if (!card.artifacts.buildPath) { this.wait(card, 'needs-you', 'Build command ran but returned no buildPath'); return false; }
+          if (!card.artifacts.buildPath) { this.wait(card, 'needs-you', 'The build step ran but returned no buildPath'); return false; }
         }
         this.setStage(card, 'qa', 'akaw', 'Built → QA');
         return true;
@@ -316,26 +341,26 @@ export class Flow {
         return false;
       }
 
-      case 'post_jira': {
+      case 'post': {
         const text = card.gates.link_review?.comment;
-        const live = this.cfg.allowWrites && jira.configured(this.cfg) && card.jiraKey;
+        const live = this.cfg.allowWrites && this.trackerLive && card.taskKey;
         if (live) {
-          const res = await jira.postComment(this.cfg, card.jiraKey, text);
+          const res = await this.tracker.postComment(this.trackerConf, this.cfg.env, card.taskKey, text);
           card.posted = { at: now(), id: res.id, live: true };
-          this.store.audit(by, 'jira.comment', { cardId: card.id, jiraKey: card.jiraKey, commentId: res.id });
+          this.store.audit(by, 'task.comment', { cardId: card.id, tracker: this.trackerConf.provider, taskKey: card.taskKey, commentId: res.id });
         } else {
-          const why = !card.jiraKey ? 'no Jira key on the card' : !jira.configured(this.cfg) ? 'Jira not configured' : 'AKAW_ALLOW_WRITES is off';
+          const why = !card.taskKey ? 'no task linked to the card' : !this.trackerLive ? `${this.trackerName} not configured` : 'AKAW_ALLOW_WRITES is off';
           card.posted = { at: now(), live: false, dryRun: true, why, text };
-          this.store.audit(by, 'jira.comment.dry-run', { cardId: card.id, jiraKey: card.jiraKey, why, text });
+          this.store.audit(by, 'task.comment.dry-run', { cardId: card.id, tracker: this.trackerConf.provider, taskKey: card.taskKey, why, text });
         }
-        this.setStage(card, 'reviewers', 'akaw', card.posted.live ? `Posted to ${card.jiraKey}` : `Dry-run post (${card.posted.why})`);
-        this.wait(card, 'waiting', 'Waiting for reviewers on the Jira card');
+        this.setStage(card, 'reviewers', 'akaw', card.posted.live ? `Posted to ${this.trackerName} ${card.taskKey}` : `Dry-run post (${card.posted.why})`);
+        this.wait(card, 'waiting', `Waiting for reviewers on the ${this.trackerName} card`);
         return false;
       }
 
       case 'reviewers': {
-        if (!card.reviews.length && jira.configured(this.cfg) && card.jiraKey) await this.fetchReplies(card.id, by, false);
-        if (!card.reviews.length) { this.wait(card, 'waiting', 'Waiting for reviewers on the Jira card'); return false; }
+        if (!card.reviews.length && this.trackerLive && card.taskKey) await this.fetchReplies(card.id, by, false);
+        if (!card.reviews.length) { this.wait(card, 'waiting', `Waiting for reviewers on the ${this.trackerName} card`); return false; }
         this.setStage(card, 'triage', 'akaw', 'Replies in → Triage');
         return true;
       }
@@ -368,16 +393,26 @@ export class Flow {
     if (result.playLink) a.playLink = result.playLink;
   }
 
-  async runFlowCommand(card, stage, cmd, by) {
+  runDir(card, stage) {
     const dir = path.join(this.cfg.dataDir, 'runs', card.id, `${stage}-${Date.now()}`);
     fs.mkdirSync(dir, { recursive: true });
     const specFile = path.join(dir, 'spec.json');
-    fs.writeFileSync(specFile, JSON.stringify({ card: { id: card.id, title: card.title, gameId: card.gameId, jiraKey: card.jiraKey, kit: card.kit, version: card.version }, spec: card.spec, game: this.game(card.gameId) }, null, 2));
-    this.log(card, `Running ${stage} command`);
-    const r = await runCommand(cmd, { cwd: this.cfg.flow.repo, vars: { spec: specFile, card: card.id, out: dir }, secretValues: this.cfg.secretValues });
-    card.commandRuns.push({ at: now(), stage, code: r.code, cmd: r.cmd, output: r.output.slice(-3000) });
+    fs.writeFileSync(specFile, JSON.stringify({ card: { id: card.id, title: card.title, gameId: card.gameId, taskKey: card.taskKey, kit: card.kit, version: card.version, artifacts: card.artifacts, route: card.gates?.close?.route || null, previews: card.previews || [], exportLengths: this.settings.lengths || [15, 30, 59] }, spec: card.spec, game: this.game(card.gameId), kit: this.kitAssets(card).map((a) => ({ id: a.id, name: a.name, kind: a.kind, path: a.held ? path.join(this.cfg.dataDir, 'held', a.held.key) : a.source.path || a.source.link })) }, null, 2));
+    return { dir, specFile };
+  }
+
+  stepContext(card, dir, specFile, extra = {}) {
+    return { card, spec: card.spec, game: this.game(card.gameId), dir, specFile, env: this.cfg.env || {}, flowRepo: this.app.flowRepo, secretValues: this.cfg.secretValues, ...extra };
+  }
+
+  async runFlowStep(card, stage, by) {
+    const step = this.app.steps[stage];
+    const { dir, specFile } = this.runDir(card, stage);
+    this.log(card, `Running ${stage}: ${describeStep(step)}`);
+    const r = await runStep(stage, step, this.stepContext(card, dir, specFile));
+    card.commandRuns.push({ at: now(), stage, runner: r.runner, code: r.code, cmd: r.cmd || describeStep(step), output: String(r.output || '').slice(-3000), costUsd: r.costUsd ?? null });
     if (card.commandRuns.length > 20) card.commandRuns.shift();
-    this.store.audit(by, 'flow.command', { cardId: card.id, stage, code: r.code });
+    this.store.audit(by, 'flow.step', { cardId: card.id, stage, runner: r.runner, code: r.code, costUsd: r.costUsd ?? undefined });
     return r;
   }
 
@@ -408,14 +443,14 @@ export class Flow {
       if (files.bytes > n.sizeCapMB * 1024 * 1024) over.push(`${n.name} (${(files.bytes / 1048576).toFixed(2)} MB > ${n.sizeCapMB} MB)`);
     }
     let cmdResult = null;
-    if (this.cfg.flow.commands.qa) {
-      cmdResult = await this.runFlowCommand(card, 'qa', this.cfg.flow.commands.qa, by);
-      if (cmdResult.code !== 0) notes.push(`Flow QA command failed (exit ${cmdResult.code})`);
+    if (this.app.steps.qa.runner !== 'manual') {
+      cmdResult = await this.runFlowStep(card, 'qa', by);
+      if (cmdResult.code !== 0) notes.push(`Flow QA step failed (${cmdResult.runner}, exit ${cmdResult.code})`);
     }
     card.qa = { at: now(), bytes: files.bytes, filesRead: files.files.length, copyLines: builtCopy.length, notes, overCap: over, command: cmdResult ? cmdResult.code : null };
     const failed = !g.ok || over.length || (cmdResult && cmdResult.code !== 0);
     if (failed) {
-      const why = [...g.blocked.map((r) => r.ruleId), ...over.map((o) => `size cap ${o}`), cmdResult?.code ? 'flow QA command' : null].filter(Boolean).join(', ');
+      const why = [...g.blocked.map((r) => r.ruleId), ...over.map((o) => `size cap ${o}`), cmdResult?.code ? 'flow QA step' : null].filter(Boolean).join(', ');
       this.wait(card, 'blocked', `QA blocked: ${why}`);
       this.store.audit(by, 'qa.blocked', { cardId: card.id, why });
       return false;
@@ -438,19 +473,22 @@ export class Flow {
     const slugGame = card.gameId || 'game';
     const files = [];
     for (const n of nets) for (const len of lengths) files.push({ network: n.name, route: (n.routes || []).find((r) => routes.includes(r)), length: len, file: `${card.id}_${slugGame}_${n.name.replace(/\W+/g, '')}_${len}s.html` });
+    // Preview (GIF / mp4 / end-card screenshots) for delivery, if a preview runner is set.
+    if (this.app.steps.preview.runner !== 'manual' && !card.previewsDone) {
+      const pr = await this.runFlowStep(card, 'preview', by);
+      if (pr.code !== 0) { this.wait(card, 'blocked', `Preview step failed (${pr.runner}): ${String(pr.output || '').slice(0, 160)}`); return false; }
+      card.previews = pr.result?.previews || [];
+      if (pr.result?.screenshots?.length) card.artifacts.endScreenshots = pr.result.screenshots;
+      card.previewsDone = true;
+    }
     let cmd = null;
-    if (this.cfg.flow.commands.export) {
-      cmd = await this.runFlowCommand(card, 'export', this.cfg.flow.commands.export, by);
-      if (cmd.code !== 0) { this.wait(card, 'blocked', `Export command failed (exit ${cmd.code})`); return false; }
+    if (this.app.steps.export.runner !== 'manual') {
+      cmd = await this.runFlowStep(card, 'export', by);
+      if (cmd.code !== 0) { this.wait(card, 'blocked', `Export step failed (${cmd.runner}, exit ${cmd.code})`); return false; }
     }
-    card.exportReceipt = { at: now(), by, route, lengths, files, fingerprint: fp, produced: Boolean(cmd), note: cmd ? 'Produced by the export command' : 'Planned: no AKAW_CMD_EXPORT set, so this lists what to export' };
-    const msg = `Playable ready: ${card.title} (${card.id}${card.jiraKey ? `, ${card.jiraKey}` : ''}). Route ${route}. ${files.length} exports. ${card.artifacts.playLink || ''}`.trim();
-    if (this.cfg.allowWrites && slack.configured(this.cfg)) {
-      await slack.post(this.cfg, msg);
-      this.store.audit(by, 'slack.post', { cardId: card.id });
-    } else {
-      this.store.audit(by, 'slack.post.dry-run', { cardId: card.id, text: msg, why: slack.configured(this.cfg) ? 'AKAW_ALLOW_WRITES is off' : 'Slack not configured' });
-    }
+    card.exportReceipt = { at: now(), by, route, lengths, files, fingerprint: fp, produced: Boolean(cmd), previews: (card.previews || []).map((p) => ({ orientation: p.orientation, mp4: p.mp4, gif: p.gif })), note: cmd ? `Produced by the export step (${cmd.runner})` : 'Planned: no export runner set, so this lists what to export' };
+    const msg = `Playable ready: ${card.title} (${card.id}${card.taskKey ? `, ${this.trackerName} ${card.taskKey}` : ''}). Route ${route}. ${files.length} exports. ${card.artifacts.playLink || ''}`.trim();
+    await this.notify('delivered', card, msg, by);
     this.store.audit(by, 'exports', { cardId: card.id, route, count: files.length, fingerprint: fp });
     this.setStage(card, 'done', 'akaw', `Exported ${files.length} files → Done`);
     card.status = 'done';
@@ -476,7 +514,8 @@ export class Flow {
     for (const g of ['deploy', 'link_review', 'close']) delete card.gates[g];
     if (card.gates.concept_lock) card.gates.concept_lock_previous = card.gates.concept_lock;
     delete card.gates.concept_lock;
-    this.setStage(card, 'jira', 'akaw', `Notes → back as a P0 card (v${card.version})`);
+    card.previewsDone = false;
+    this.setStage(card, 'intake', 'akaw', `Notes → back as a P0 card (v${card.version})`);
     this.store.audit(by, 'triage.loop-back', { cardId: card.id, version: card.version });
   }
 
@@ -512,13 +551,13 @@ export class Flow {
       if (!/^https?:\/\//.test(link)) throw new Error('Add the Play Now link');
       if (TUNNEL_RE.test(link)) throw new Error('That looks like a preview or tunnel address. Use the catalogue Play Now link.');
       const comment = String(payload.comment || '').trim();
-      if (!comment) throw new Error('Write the exact Jira comment');
+      if (!comment) throw new Error(`Write the exact ${this.trackerName} comment`);
       if (!comment.includes(link)) throw new Error('The comment must carry the play link');
       card.artifacts.playLink = link;
       record.comment = comment;
       record.playLink = link;
       card.gates.link_review = record;
-      this.setStage(card, 'post_jira', by, 'Link review approved');
+      this.setStage(card, 'post', by, 'Link review approved');
     } else if (gate === 'close') {
       const route = payload.route || card.closeProposal || 'UA';
       if (!['UA', 'RT', 'both'].includes(route)) throw new Error('Route is UA, RT or both');
@@ -557,7 +596,7 @@ export class Flow {
     batch.status = 'sealed';
     batch.sealedAt = now();
     batch.sealedBy = by;
-    batch.deployCommand = this.cfg.flow.deployCommand || null;
+    batch.deployCommand = this.app.deploy?.command || null;
     for (const cid of batch.cards) {
       const c = this.cards.find((x) => x.id === cid);
       if (!c || c.stage !== 'batch_link') continue;
@@ -566,6 +605,7 @@ export class Flow {
     }
     this.store.save('batches');
     this.store.audit(by, 'batch.seal', { batchId: batch.id, cards: batch.cards });
+    this.notify('batch-sealed', null, `Batch ${batch.id} sealed with ${batch.cards.length} playable(s). Deploy, then confirm in Akaw.`, by).catch(() => {});
     this.save();
     return batch;
   }
@@ -584,8 +624,8 @@ export class Flow {
       c.gates.deploy = { by, at: now(), batchId };
       this.setStage(c, 'link_review', by, `Deployed in ${batchId}`);
       const link = c.artifacts.playLink || '';
-      c.draftComment = `Play Now: ${link || '<play link>'}\n${c.title}${c.jiraKey ? ` (${c.jiraKey})` : ''}, v${c.version}. Ready for review.`;
-      this.wait(c, 'needs-you', 'Link review: check the play link and the exact Jira comment');
+      c.draftComment = `Play Now: ${link || '<play link>'}\n${c.title}${c.taskKey ? ` (${c.taskKey})` : ''}, v${c.version}. Ready for review.`;
+      this.wait(c, 'needs-you', `Link review: check the play link and the exact ${this.trackerName} comment`);
     }
     this.store.save('batches');
     this.store.audit(by, 'gate.deploy', { batchId, cards: batch.cards });
@@ -610,8 +650,8 @@ export class Flow {
 
   async fetchReplies(id, by, save = true) {
     const card = this.card(id);
-    if (!card.jiraKey) throw new Error('No Jira key on this card');
-    const all = await jira.comments(this.cfg, card.jiraKey);
+    if (!card.taskKey) throw new Error(`No ${this.trackerName} task linked to this card`);
+    const all = await this.tracker.comments(this.trackerConf, this.cfg.env, card.taskKey);
     const since = card.posted?.at ? Date.parse(card.posted.at) : 0;
     const ours = card.gates.link_review?.comment?.trim();
     const known = new Set(card.reviews.map((r) => r.commentId).filter(Boolean));
@@ -619,10 +659,10 @@ export class Flow {
     for (const c of all) {
       if (Date.parse(c.at) < since || known.has(c.id) || (ours && c.text.trim() === ours)) continue;
       const v = classifyReview(c.text);
-      card.reviews.push({ by: c.by, text: c.text, verdict: v === 'mixed' ? 'notes' : v, raw: v, at: c.at, commentId: c.id, source: 'jira' });
+      card.reviews.push({ by: c.by, text: c.text, verdict: v === 'mixed' ? 'notes' : v, raw: v, at: c.at, commentId: c.id, source: this.trackerConf.provider });
       n++;
     }
-    if (n) this.log(card, `${n} repl${n > 1 ? 'ies' : 'y'} read from ${card.jiraKey}`, by);
+    if (n) this.log(card, `${n} repl${n > 1 ? 'ies' : 'y'} read from ${this.trackerName} ${card.taskKey}`, by);
     if (save) this.save();
     return n;
   }
@@ -683,30 +723,100 @@ export class Flow {
     return card;
   }
 
-  // ---- Jira sync ----------------------------------------------------------
-  async jiraPreview(by) {
-    const issues = await jira.search(this.cfg);
-    const byKey = new Map(this.cards.filter((c) => c.jiraKey).map((c) => [c.jiraKey, c]));
-    const rows = issues.map((i) => {
-      const spec = parseIdea(`${i.summary}\n${i.description}`, this.games, { title: i.summary });
-      return { ...i, cardId: byKey.get(i.key)?.id || null, gameGuess: spec.gameId, gameQuestion: spec.questions.find((q) => q.field === 'game')?.question || null };
+  // ---- task tracker sync ----------------------------------------------
+  async trackerPreview(by) {
+    const rows0 = applyFilter(await this.tracker.search(this.trackerConf, this.cfg.env), this.trackerConf);
+    const byKey = new Map(this.cards.filter((c) => c.taskKey).map((c) => [String(c.taskKey), c]));
+    const rows = rows0.map((i) => {
+      const spec = parseIdea(`${i.summary}\n${i.description || ''}`, this.games, { title: i.summary });
+      return { ...i, cardId: byKey.get(String(i.key))?.id || null, gameGuess: spec.gameId, gameQuestion: spec.questions.find((q) => q.field === 'game')?.question || null };
     });
-    this.lastJiraPreview = { at: now(), rows };
-    this.store.audit(by, 'jira.sync.preview', { issues: rows.length, new: rows.filter((r) => !r.cardId).length });
-    return this.lastJiraPreview;
+    this.lastTaskPreview = { at: now(), tracker: this.trackerConf.provider, rows };
+    this.store.audit(by, 'task.sync.preview', { tracker: this.trackerConf.provider, tasks: rows.length, new: rows.filter((r) => !r.cardId).length });
+    return this.lastTaskPreview;
   }
 
-  jiraImport(keys, by) {
-    if (!this.lastJiraPreview) throw new Error('Run a preview sync first');
+  trackerImport(keys, by) {
+    if (!this.lastTaskPreview) throw new Error('Run a preview sync first');
     const made = [];
-    for (const row of this.lastJiraPreview.rows) {
-      if (!keys.includes(row.key) || row.cardId) continue;
-      const card = this.createCard({ title: row.summary, gameId: row.gameGuess, idea: row.description || row.summary, jiraKey: row.key, jiraPriority: row.priority, sprintEnd: row.sprintEnd, stage: 'jira' }, by);
+    for (const row of this.lastTaskPreview.rows) {
+      if (!keys.map(String).includes(String(row.key)) || row.cardId) continue;
+      const card = this.createCard({ title: row.summary, gameId: row.gameGuess, idea: row.description || row.summary, taskKey: String(row.key), taskUrl: row.url || null, priority: row.priority, sprintEnd: row.due, stage: 'intake' }, by);
       row.cardId = card.id;
       made.push(card.id);
     }
-    this.store.audit(by, 'jira.import', { cards: made });
+    this.store.audit(by, 'task.import', { tracker: this.trackerConf.provider, cards: made });
     return made;
+  }
+
+  // ---- chat -----------------------------------------------------------------
+  async notify(event, card, text, by = 'akaw') {
+    for (const t of this.app.chat) {
+      if (!(t.events || ['delivered']).includes(event)) continue;
+      let p;
+      try { p = chatFor(t); } catch (e) { this.store.audit(by, 'chat.error', { event, error: e.message }); continue; }
+      const configured = p.configured(t, this.cfg.env || {});
+      if (!this.cfg.allowWrites || !configured) {
+        this.store.audit(by, 'chat.post.dry-run', { provider: t.provider, event, cardId: card?.id, text, why: configured ? 'AKAW_ALLOW_WRITES is off' : `${p.name} not configured` });
+        continue;
+      }
+      try {
+        await p.post(t, this.cfg.env, text, { event, card: card ? { id: card.id, title: card.title, stage: card.stage, status: card.status, taskKey: card.taskKey, playLink: card.artifacts?.playLink } : null });
+        this.store.audit(by, 'chat.post', { provider: t.provider, event, cardId: card?.id });
+      } catch (e) {
+        this.store.audit(by, 'chat.error', { provider: t.provider, event, cardId: card?.id, error: e.message });
+      }
+    }
+  }
+
+  // ---- art generation (credit hook first) -----------------------------------
+  toCredits(amount, unit) {
+    if (amount == null) return null;
+    if ((unit || 'credits') === 'credits') return Number(amount);
+    const rate = this.settings.creditUsdRate;
+    return rate ? Number(amount) / rate : null;
+  }
+
+  async generateArt(id, { generatorId, prompt, n = 1, estimate = null }, by) {
+    const card = this.card(id);
+    if (card.stage !== 'art') throw new Error('Generate at the Art step, after the concept lock');
+    const g = this.app.generators.find((x) => x.id === generatorId);
+    if (!g) throw new Error(`No generator "${generatorId}" in akaw.config.json`);
+    if (!generatorConfigured(g, this.cfg.env || {})) throw new Error(`${g.label || g.id} is not configured`);
+    if (!String(prompt || '').trim()) throw new Error('Write the prompt');
+    const count = Math.max(1, Math.min(8, Number(n) || 1));
+    if ((g.unit || 'credits') === 'usd' && g.costPerOutput != null && !this.settings.creditUsdRate) throw new Error('This generator is priced in $. Set $ per credit in Settings first.');
+    let est = g.costPerOutput != null ? this.toCredits(g.costPerOutput * count, g.unit) : (estimate === '' || estimate == null ? null : Number(estimate));
+    if (est == null || !Number.isFinite(est)) throw new Error('No price on file for this generator: type the estimate in credits');
+    if (card.credits.ceiling == null) throw new Error('No credit ceiling: the concept lock sets it');
+    if (card.credits.spent + est > card.credits.ceiling) {
+      this.store.audit(by, 'credits.refused', { cardId: id, generator: g.id, estimate: est, spent: card.credits.spent, ceiling: card.credits.ceiling });
+      throw new Error(`Credit hook: ${card.credits.spent} + ${+est.toFixed(2)} is over the ceiling of ${card.credits.ceiling}. Send the card back to concept lock for a new yes.`);
+    }
+    const { dir, specFile } = this.runDir(card, `gen-${g.id}`);
+    this.log(card, `Generating ${count} with ${g.label || g.id} (est. ${+est.toFixed(2)} credits)`, by);
+    let res;
+    try {
+      res = await generate(g, this.stepContext(card, dir, specFile, { prompt, n: count }));
+    } catch (e) {
+      this.store.audit(by, 'generate.failed', { cardId: id, generator: g.id, error: e.message });
+      this.save();
+      throw e;
+    }
+    const actual = res.reportedCost != null ? (this.toCredits(res.reportedCost, g.unit) ?? est) : est;
+    card.credits.spent = +(card.credits.spent + actual).toFixed(4);
+    card.credits.entries.push({ at: now(), credits: +actual.toFixed(4), note: `${g.label || g.id}: ${res.files.length} output(s)`, by, generator: g.id });
+    const assets = [];
+    for (const f of res.files) {
+      const a = await this.library.registerGenerated(f.path, { gameId: card.gameId, clientId: card.clientId, cardId: card.id, madeWith: { tool: g.label || g.id, provider: g.provider, model: g.model || null, prompt, credits: +(actual / Math.max(1, res.files.length)).toFixed(4), at: now(), sourceUrl: f.sourceUrl || null } }, by);
+      if (!assets.includes(a.id)) assets.push(a.id);
+      if (!card.kit.includes(a.id)) card.kit.push(a.id);
+    }
+    card.generations.push({ at: now(), by, generator: g.id, prompt, n: count, credits: +actual.toFixed(4), assets });
+    if (card.credits.spent > card.credits.ceiling) this.store.audit(by, 'credits.over', { cardId: id, spent: card.credits.spent, ceiling: card.credits.ceiling });
+    this.store.audit(by, 'generate', { cardId: id, generator: g.id, provider: g.provider, model: g.model, outputs: res.files.length, credits: actual, usd: this.settings.creditUsdRate ? +(actual * this.settings.creditUsdRate).toFixed(2) : null });
+    this.save();
+    return { card, assets };
   }
 
   // ---- rules, lessons, games, settings ----------------------------------
@@ -829,7 +939,7 @@ export class Flow {
     const open = cards.filter((c) => c.stage !== 'done');
     const queue = orderQueue(cards).map((c) => c.id);
     return {
-      stages: STAGES,
+      stages: stagesFor(this.trackerName),
       cards: cards.map((c) => this.view(c)),
       queue,
       counts: {

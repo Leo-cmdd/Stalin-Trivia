@@ -1,0 +1,8 @@
+{
+  "title": "{{card.title}}",
+  "game": "{{game.name}}",
+  "winLine": "{{fields.winLine}}",
+  "prize": "{{fields.prize}}",
+  "palette": "{{game.palette}}",
+  "lengths": [15, 30, 59]
+}

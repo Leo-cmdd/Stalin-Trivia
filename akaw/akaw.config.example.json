@@ -1,0 +1,63 @@
+{
+  "_readme": "Copy to akaw.config.json (gitignored) and keep only what you use. Keys never go here: they go in .env. Every _option block below is an alternative you can swap in.",
+
+  "flowRepo": "/Users/YOU/code/papaya-creative",
+
+  "tracker": { "provider": "jira", "jql": "project = <KEY> AND statusCategory != Done AND summary ~ \"playable\" ORDER BY priority DESC", "sprintField": "customfield_10020" },
+  "_tracker_asana": { "provider": "asana", "projectGid": "1200000000000000", "priorityField": "Priority", "summaryFilter": "playable" },
+  "_tracker_monday": { "provider": "monday", "boardId": "1234567890", "statusColumn": "Status", "doneLabels": ["Done"], "priorityColumn": "Priority", "dateColumn": "Due", "descriptionColumn": "Brief" },
+
+  "chat": [
+    { "provider": "slack", "events": ["delivered", "batch-sealed"] },
+    { "provider": "telegram", "chatId": "-1001234567890", "events": ["needs-you", "blocked"] }
+  ],
+  "_chat_other_options": [
+    { "provider": "teams", "events": ["delivered"] },
+    { "provider": "discord", "events": ["delivered"] },
+    { "provider": "googlechat", "events": ["delivered"] },
+    { "provider": "webhook", "events": ["delivered", "needs-you"], "_note": "n8n, Make or Zapier: route on to WhatsApp, email, SMS" },
+    { "provider": "slack", "secretEnv": "SLACK_WEBHOOK_URL_RT", "events": ["delivered"], "_note": "a second Slack channel with its own webhook" }
+  ],
+
+  "steps": {
+    "draft": {
+      "runner": "claude",
+      "promptFile": "prompts/draft.md",
+      "permissionMode": "acceptEdits",
+      "allowedTools": ["Read", "Edit", "Write", "Bash(npm run playable:*)"],
+      "maxBudgetUsd": 5,
+      "timeoutMs": 1800000
+    },
+    "build": { "runner": "command", "command": "npm run playable:build -- --spec {spec} --out {out}" },
+    "qa": { "runner": "command", "command": "npm run playable:qa:all" },
+    "preview": { "runner": "capture", "seconds": 20, "orientations": ["portrait", "landscape"], "autoplayScript": null, "taps": [{ "x": 0.5, "y": 0.6, "atMs": 1500 }] },
+    "export": { "runner": "n8n", "url": "http://localhost:5678/webhook/akaw-export", "authHeader": "X-Akaw-Key", "timeoutMs": 900000 },
+    "deploy": { "command": "npm run playable:deploy -- --batch" }
+  },
+  "_step_presets": {
+    "remotion_preview_video": { "runner": "command", "cwd": "/Users/YOU/code/remotion-playables", "writeFiles": { "props.json": "templates/remotion-props.json" }, "command": "npx remotion render src/index.ts PlayablePreview {out}/preview.mp4 --props={out}/props.json" },
+    "nexrender_endcard": { "runner": "command", "writeFiles": { "job.json": "templates/nexrender-job.json" }, "command": "nexrender-cli --file {out}/job.json" },
+    "ffmpeg_cutdowns": { "runner": "command", "command": "scripts/ffmpeg-cutdowns.sh {out}/master.mp4 {out} 15 30 59" },
+    "blender_template": { "runner": "command", "command": "blender -b /Users/YOU/Templates/game.blend --python scripts/render_from_spec.py -- {spec} {out}" },
+    "claude_new_mechanic": { "runner": "claude", "promptFile": "prompts/new-mechanic.md", "permissionMode": "acceptEdits", "allowedTools": ["Read", "Edit", "Write", "Bash(git worktree:*)", "Bash(npm test:*)"], "maxBudgetUsd": 10 },
+    "n8n_any_step": { "runner": "n8n", "url": "https://your-n8n.example.com/webhook/akaw-step", "authHeader": "X-Akaw-Key" }
+  },
+
+  "generators": [
+    { "id": "flux", "label": "Flux (stills)", "provider": "fal", "model": "fal-ai/flux/dev", "kind": "image", "input": { "prompt": "{{prompt}}", "image_size": "portrait_16_9", "num_images": "{{n}}" }, "batch": true, "unit": "usd", "costPerOutput": null, "_note": "Check the model id and price on fal.ai; set costPerOutput so the credit hook can quote." },
+    { "id": "video-fal", "label": "Hero clip (fal video)", "provider": "fal", "model": "<a Seedance, Kling, Veo or Hailuo endpoint on fal>", "kind": "video", "input": { "prompt": "{{prompt}}" }, "unit": "usd", "costPerOutput": null },
+    { "id": "flux-replicate", "label": "Flux Schnell (Replicate)", "provider": "replicate", "model": "black-forest-labs/flux-schnell", "kind": "image", "input": { "prompt": "{{prompt}}", "aspect_ratio": "9:16" }, "unit": "usd", "costPerOutput": null },
+    { "id": "ai-studio", "label": "Google AI Studio image", "provider": "gemini", "model": "gemini-2.5-flash-image", "kind": "image", "unit": "usd", "costPerOutput": null, "_note": "Check the current image model id in AI Studio." },
+    { "id": "higgsfield-n8n", "label": "Higgsfield (via n8n)", "provider": "n8n", "url": "http://localhost:5678/webhook/higgsfield", "authHeader": "X-Akaw-Key", "kind": "video", "unit": "credits", "costPerOutput": null, "_note": "The workflow calls Higgsfield and returns {files:[{url}], cost}." },
+    { "id": "higgsfield-claude", "label": "Higgsfield (Claude Code + MCP)", "provider": "claude", "mcpConfig": "/Users/YOU/.config/akaw/higgsfield-mcp.json", "strictMcpConfig": true, "permissionMode": "dontAsk", "allowedTools": ["mcp__higgsfield"], "prompt": "Use the Higgsfield tools to make {{n}} output(s) for this prompt: {{prompt}}. Download each result into {{out}}.", "kind": "video", "unit": "credits", "costPerOutput": null },
+    { "id": "comfyui", "label": "ComfyUI workflow (local)", "provider": "command", "command": "python3 scripts/comfy_run.py --prompt-file {prompt} --out {out} --n {n}", "kind": "image", "unit": "credits", "costPerOutput": 0 }
+  ],
+
+  "tools": {
+    "remotionProject": "/Users/YOU/code/remotion-playables",
+    "aerender": "/Applications/Adobe After Effects 2025/aerender",
+    "blender": "/Applications/Blender.app/Contents/MacOS/Blender",
+    "chromePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "n8nUrl": "http://localhost:5678"
+  }
+}

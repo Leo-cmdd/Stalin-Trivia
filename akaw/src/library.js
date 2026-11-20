@@ -255,6 +255,50 @@ export class Library {
     return asset;
   }
 
+  // A file made by a generator becomes a Project card with "made with" filled in.
+  async registerGenerated(file, { gameId, clientId, cardId, madeWith }, actor) {
+    const st = fs.statSync(file);
+    const { checksum, checksumKind } = await checksumFile(file, st.size);
+    const existing = this.assets.find((a) => a.source?.checksum === checksum);
+    if (existing) {
+      if (cardId && !existing.usedBy.includes(cardId)) existing.usedBy.push(cardId);
+      this.store.save('assets');
+      return existing;
+    }
+    const name = path.basename(file);
+    const { type, kind } = classify(name);
+    const asset = {
+      id: `gen:${checksum.split(':').pop().slice(0, 16)}`,
+      name,
+      gameIds: gameId ? [gameId] : [],
+      clientIds: clientId ? [clientId] : [],
+      kind: kind === 'other' || kind === 'gameplay render' ? 'AI plate' : kind,
+      type,
+      level: 'Project',
+      status: 'candidate',
+      replacedBy: null,
+      source: { system: 'local', link: file, path: file, fileId: null, checksum, checksumKind, size: st.size, mtime: st.mtime.toISOString(), gone: false },
+      locations: [],
+      held: null,
+      preview: { thumb: null },
+      useFor: '',
+      dont: '',
+      approval: null,
+      madeWith,
+      usedBy: cardId ? [cardId] : [],
+      flags: [],
+      tags: ['ai-generated'],
+      creative: null,
+      folder: path.basename(path.dirname(file)),
+      scanId: null,
+      createdAt: new Date().toISOString(),
+      createdBy: actor,
+    };
+    this.assets.push(asset);
+    this.store.save('assets');
+    return asset;
+  }
+
   update(id, patch, actor) {
     const a = this.assets.find((x) => x.id === id);
     if (!a) throw new Error('Asset not found');

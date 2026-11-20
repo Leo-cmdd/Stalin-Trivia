@@ -88,14 +88,17 @@ async function render() {
 }
 
 function renderSideFoot() {
-  const i = S.integrations;
-  const p = (name, on) => `<span class="pill ${on ? 'ok' : ''}">${name} ${on ? 'on' : 'off'}</span>`;
+  const P = S.providers;
+  const p = (name, on) => `<span class="pill ${on ? 'ok' : ''}">${esc(name)} ${on ? 'on' : 'off'}</span>`;
   $('#side-foot').innerHTML = `
-    <div>${p('Jira', i.jira.configured)} ${p('Slack', i.slack.configured)}</div>
-    <div>${p('Drive', i.drive.configured)} ${p('Box', i.box.configured)}</div>
-    <div><span class="pill ${i.allowWrites ? 'bad' : 'wait'}">writes ${i.allowWrites ? 'LIVE' : 'dry-run'}</span></div>
+    <div>${P.tracker.provider === 'none' ? '<span class="pill">no tracker</span>' : p(P.tracker.name, P.tracker.configured)}</div>
+    <div>${P.chat.length ? P.chat.map((c) => p(c.name.replace('Microsoft ', '').split(' (')[0], c.configured)).join(' ') : '<span class="pill">no chat</span>'}</div>
+    <div><span class="pill ${P.allowWrites ? 'bad' : 'wait'}">writes ${P.allowWrites ? 'LIVE' : 'dry-run'}</span></div>
+    ${P.problems.length || P.configError ? '<div><a href="#/settings" class="pill bad" style="text-decoration:none">config problem</a></div>' : ''}
     <div class="muted">You: <b>${esc(S.settings.operator)}</b></div>`;
 }
+
+const TN = () => S.providers.tracker.name;
 
 window.addEventListener('hashchange', () => { const next = UI.openAfterNav || null; UI.openAfterNav = null; closeDrawer(); UI.cardId = next; render(); });
 
@@ -136,7 +139,7 @@ VIEWS.board = () => {
         <span class="chip">Done <b>${S.counts.done}</b></span>
       </div>
       <div class="row">
-        <button data-act="jira-preview" ${S.integrations.jira.configured ? '' : 'disabled title="Set Jira keys in .env"'}>Sync Jira (preview)</button>
+        <button data-act="tracker-preview" ${S.providers.tracker.configured ? '' : `disabled title="Set the ${esc(TN())} keys in .env and the tracker in akaw.config.json"`}>Sync ${esc(TN())} (preview)</button>
         <button data-act="seal-batch" ${open?.cards?.length ? '' : 'disabled'}>Seal batch${open?.cards?.length ? ` ${esc(open.id)} (${open.cards.length})` : ''}</button>
         <button class="primary" data-act="run-queue" title="Works queued cards ${S.settings.concurrency || 3} at a time, each until it needs you. Stops before publishing.">Run queue</button>
       </div>
@@ -160,7 +163,7 @@ VIEWS.board = () => {
       </div>
       <aside class="panel queue">
         <h2>Queue</h2>
-        <p class="muted small" style="margin-top:-6px">P0 feedback fix · P1 close out · P2 new variant · P3 new mechanic. Then Jira priority, sprint end, longest wait.</p>
+        <p class="muted small" style="margin-top:-6px">P0 feedback fix · P1 close out · P2 new variant · P3 new mechanic. Then task priority, sprint end or due date, longest wait.</p>
         ${qcards.length ? `<ol>${qcards.map(kcard).join('')}</ol>` : '<div class="empty">Nothing queued. <a href="#/start">Start a playable</a>.</div>'}
       </aside>
     </div>`;
@@ -279,7 +282,7 @@ async function renderCardDrawer(id) {
   $('#drawer').innerHTML = `
     <div class="drawer-head">
       <div>
-        <div class="muted mono">${esc(c.id)}${c.jiraKey ? ` · ${S.integrations.jira.baseUrl ? `<a href="${esc(S.integrations.jira.baseUrl)}/browse/${esc(c.jiraKey)}" target="_blank" rel="noopener">${esc(c.jiraKey)}</a>` : esc(c.jiraKey)}` : ''} · v${c.version}</div>
+        <div class="muted mono">${esc(c.id)}${c.taskKey ? ` · ${esc(TN())} ${c.taskUrl ? `<a href="${esc(c.taskUrl)}" target="_blank" rel="noopener">${esc(c.taskKey)}</a>` : esc(c.taskKey)}` : ''} · v${c.version}</div>
         <h1>${esc(c.title)}</h1>
         <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
           <span class="pill ${st.kind === 'gate' ? 'gate' : ''}">${esc(st.label)}</span>${statusPill(c)}<span class="pill">${esc(c.tier)} · ${esc(S.tiers[c.tier])}</span><span class="pill">${esc(gameName(c.gameId))}</span>
@@ -299,7 +302,7 @@ async function renderCardDrawer(id) {
     </div>
     ${stagePanel(c)}
     ${c.spec ? specPanel(c.spec, { questions: c.stage === 'brief' || c.stage === 'prep', cardId: c.id }) : ''}
-    ${['jira', 'prep', 'brief', 'draft', 'concept_lock'].includes(c.stage) ? `
+    ${['intake', 'prep', 'brief', 'draft', 'concept_lock'].includes(c.stage) ? `
       <form class="panel" data-form="edit-spec" data-id="${esc(c.id)}">
         <h2>Idea</h2>
         ${c.stage === 'prep' && !c.gameId ? `<label>Game</label><select name="gameId"><option value="">choose…</option>${S.games.map((g) => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join('')}</select>` : ''}
@@ -317,11 +320,12 @@ async function renderCardDrawer(id) {
         <dt>Credits</dt><dd>${c.credits.ceiling == null ? 'no ceiling yet' : `${c.credits.spent} of ${c.credits.ceiling}${S.settings.creditUsdRate ? ` ($${(c.credits.spent * S.settings.creditUsdRate).toFixed(2)})` : ''}`}</dd>
         <dt>Kit</dt><dd>${kit.length ? kit.map((a) => `${esc(a.name)} <span class="pill">${esc(a.level)}</span>`).join(', ') : '—'}</dd>
         <dt>Batch</dt><dd>${esc(c.batchId || '—')}</dd>
-        <dt>Jira priority</dt><dd>${esc(c.jiraPriority || '—')}${c.sprintEnd ? ` · sprint ends ${esc(fmtTime(c.sprintEnd))}` : ''}</dd>
+        <dt>Priority</dt><dd>${esc(c.priority || '—')}${c.sprintEnd ? ` · sprint ends ${esc(fmtTime(c.sprintEnd))}` : ''}</dd>
         <dt>Your yeses</dt><dd>${gateRec.length ? gateRec.map(([g, r]) => `<div><b>${esc(stageOf(g)?.label || g)}</b> · ${esc(r.by)} · ${esc(fmtTime(r.at))}${r.creditCeiling != null ? ` · ceiling ${r.creditCeiling}` : ''}${r.route ? ` · ${esc(r.route)}` : ''}</div>`).join('') : '—'}</dd>
       </dl>
     </div>
     ${c.qa ? `<div class="panel"><h2>QA</h2><p class="small">${c.qa.filesRead} file(s) read, ${(c.qa.bytes / 1048576).toFixed(2)} MB, ${c.qa.copyLines} copy line(s).</p>${c.qa.notes.map((n) => `<div class="callout warn small" style="margin-bottom:4px">${esc(n)}</div>`).join('')}${c.qa.overCap.map((n) => `<div class="callout bad small">Over cap: ${esc(n)}</div>`).join('')}</div>` : ''}
+    ${(c.previews || []).length ? `<div class="panel"><h2>Preview</h2><div style="display:flex;gap:12px;flex-wrap:wrap">${c.previews.map((p) => `<figure style="margin:0">${p.gif ? `<img src="/run-file?p=${encodeURIComponent(p.gif)}" alt="${esc(p.orientation)} preview" style="max-height:260px;border-radius:8px;border:1px solid var(--line)">` : '<div class="empty">no GIF</div>'}<figcaption class="small muted">${esc(p.orientation)}${p.mp4 ? ` · <a href="/run-file?p=${encodeURIComponent(p.mp4)}" target="_blank">mp4</a>` : ''}</figcaption></figure>`).join('')}</div></div>` : ''}
     ${c.exportReceipt ? `<div class="panel"><h2>Export receipt</h2><p class="small muted">${esc(c.exportReceipt.note)} · ${esc(c.exportReceipt.fingerprint || 'no fingerprint')}</p><table><thead><tr><th>Network</th><th>Route</th><th>Length</th><th>File</th></tr></thead><tbody>${c.exportReceipt.files.map((f) => `<tr><td>${esc(f.network)}</td><td>${esc(f.route)}</td><td>${f.length}s</td><td class="mono">${esc(f.file)}</td></tr>`).join('')}</tbody></table></div>` : ''}
     ${c.commandRuns?.length ? `<div class="panel"><h2>Flow command runs</h2>${c.commandRuns.slice(-4).reverse().map((r) => `<div class="small"><b>${esc(r.stage)}</b> exit ${r.code} · ${esc(fmtTime(r.at))}</div><pre class="out">${esc(r.output || '(no output)')}</pre>`).join('')}</div>` : ''}
     ${earlier.length && c.stage !== 'done' ? `
@@ -339,7 +343,7 @@ function stagePanel(c) {
   switch (c.stage) {
     case 'draft':
       return `<form class="panel" data-form="attach" data-id="${id}"><h2>Attach the draft</h2>
-        <p class="small muted">${S.integrations.flow.commands.draft ? 'Run uses AKAW_CMD_DRAFT, or attach by hand:' : 'No draft command set, so attach the real draft by hand.'}</p>
+        <p class="small muted">${S.providers.steps.draft.runner !== 'manual' ? `Run uses ${esc(S.providers.steps.draft.describe)}, or attach by hand:` : 'No draft runner set, so attach the real draft by hand.'}</p>
         <label>Draft link</label><input name="draftUrl" value="${esc(c.artifacts.draftUrl || '')}" placeholder="https://…">
         <label>Screenshots (paths or links, comma separated)</label><input name="screenshots" value="${esc(c.artifacts.screenshots.join(', '))}">
         <div style="margin-top:10px"><button class="primary" type="submit">Attach and run</button></div></form>`;
@@ -355,45 +359,62 @@ function stagePanel(c) {
         <label>Note</label><input name="note">
         <div style="margin-top:10px"><button class="gate" type="submit">Yes: lock the concept</button></div></form>`;
     }
-    case 'art':
+    case 'art': {
+      const gens = S.providers.generators;
+      const f = c.spec?.fields || {};
+      const suggested = `${f.archetype?.label || ''} playable art for ${gameName(c.gameId)}. ${c.idea || ''}`.trim();
+      const left = (c.credits.ceiling ?? 0) - c.credits.spent;
       return `<div class="panel"><h2>Art</h2>
-        <p class="small">Ceiling ${c.credits.ceiling ?? 0} credits · spent ${c.credits.spent}. The credit hook refuses anything over the ceiling. Remember: phones in AI footage are green screens; people are ordinary adults, 25 to 60.</p>
+        <p class="small">Ceiling ${c.credits.ceiling ?? 0} credits · spent ${+c.credits.spent.toFixed(2)} · left ${+left.toFixed(2)}. Every generation passes the credit hook first. Phones in AI footage are green screens; people are ordinary adults, 25 to 60.</p>
+        ${gens.length ? `<form data-form="generate" data-id="${id}" class="callout">
+          <b>Generate</b>
+          <div class="grid3" style="margin-top:6px">
+            <select name="generatorId">${gens.map((g) => `<option value="${esc(g.id)}" ${g.configured ? '' : 'disabled'}>${esc(g.label)} · ${esc(g.providerName)}${g.costPerOutput != null ? ` · ${g.costPerOutput} ${g.unit === 'usd' ? '$' : 'cr'}/output` : ''}${g.configured ? '' : ' (not configured)'}</option>`).join('')}</select>
+            <input name="n" type="number" min="1" max="8" value="1" title="outputs">
+            <input name="estimate" type="number" min="0" step="0.1" placeholder="estimate (credits), if no price on file">
+          </div>
+          <label>Prompt</label><textarea name="prompt" rows="3">${esc(suggested)}</textarea>
+          <div style="margin-top:8px"><button class="primary" type="submit">Generate inside the ceiling</button></div>
+        </form>` : '<p class="small muted">No generators set in akaw.config.json, so generate elsewhere and record the credits below.</p>'}
+        ${(c.generations || []).length ? `<h3>Generated</h3>${c.generations.map((g) => `<div class="small">${esc(fmtTime(g.at))} · ${esc(g.generator)} · ${g.assets.length} file(s) · ${g.credits} cr · “${esc(g.prompt.slice(0, 90))}”</div>`).join('')}` : ''}
+        <h3>Record credits spent elsewhere</h3>
         <form data-form="credits" data-id="${id}" style="display:flex;gap:8px"><input name="credits" type="number" min="1" placeholder="credits"><input name="note" placeholder="what for"><button type="submit">Record</button></form>
         ${c.credits.entries.length ? `<div class="log" style="margin-top:8px">${c.credits.entries.map((e) => `<div>${esc(fmtTime(e.at))} · ${e.credits} · ${esc(e.note)}</div>`).join('')}</div>` : ''}
         <div style="margin-top:10px"><button class="primary" data-act="art-done" data-id="${id}">Art done</button></div></div>`;
+    }
     case 'build':
     case 'qa':
       return `<form class="panel" data-form="attach" data-id="${id}"><h2>${c.stage === 'qa' ? 'Fix and re-run QA' : 'Attach the build'}</h2>
-        <p class="small muted">A local file or folder (the unzipped bundle). QA reads its copy, checks guardrails, secrets and size caps${S.integrations.flow.commands.qa ? ', then runs AKAW_CMD_QA' : ''}.</p>
+        <p class="small muted">A local file or folder (the unzipped bundle). QA reads its copy, checks guardrails, secrets and size caps${S.providers.steps.qa.runner !== 'manual' ? `, then runs ${esc(S.providers.steps.qa.describe)}` : ''}.${S.providers.steps.build.runner !== 'manual' && c.stage === 'build' ? ` Run uses ${esc(S.providers.steps.build.describe)}.` : ''}</p>
         <label>Build path</label><input name="buildPath" value="${esc(c.artifacts.buildPath || '')}" placeholder="/Users/you/…/build/index.html">
         <div style="margin-top:10px"><button class="primary" type="submit">Attach and run</button></div></form>`;
     case 'batch_link':
       return `<div class="panel callout"><b>In batch ${esc(c.batchId || '…')}.</b> Cards stop here so they go out in one batch with one deploy. Seal the batch on the board.</div>`;
     case 'deploy':
-      return `<div class="panel callout gate"><b>Deploy gate.</b> You run the production deploy for batch ${esc(c.batchId)}${S.integrations.flow.deployCommand ? `: <code>${esc(S.integrations.flow.deployCommand)}</code>` : ''}. Then press <b>I ran the deploy</b> on the board.</div>`;
+      return `<div class="panel callout gate"><b>Deploy gate.</b> You run the production deploy for batch ${esc(c.batchId)}${S.providers.deployCommand ? `: <code>${esc(S.providers.deployCommand)}</code>` : ''}. Then press <b>I ran the deploy</b> on the board.</div>`;
     case 'link_review': {
       const link = c.artifacts.playLink || '';
-      const draft = c.draftComment || `Play Now: ${link || '<play link>'}\n${c.title}${c.jiraKey ? ` (${c.jiraKey})` : ''}, v${c.version}. Ready for review.`;
+      const draft = c.draftComment || `Play Now: ${link || '<play link>'}\n${c.title}${c.taskKey ? ` (${c.taskKey})` : ''}, v${c.version}. Ready for review.`;
       return `<form class="panel callout gate" data-form="gate" data-gate="link_review" data-id="${id}">
         <h2>Link review</h2>
-        <p class="small">This exact comment posts under your name${S.integrations.allowWrites ? '' : ' (dry-run: writes are off)'}. Use the catalogue Play Now link, never a preview or tunnel address.</p>
+        <p class="small">This exact comment posts to ${esc(TN())} under your name${S.providers.allowWrites ? '' : ' (dry-run: writes are off)'}. Use the catalogue Play Now link, never a preview or tunnel address.</p>
         <label>Play Now link</label><input name="playLink" value="${esc(link)}" placeholder="https://…">
-        <label>Exact Jira comment</label><textarea name="comment" rows="4">${esc(draft)}</textarea>
+        <label>Exact ${esc(TN())} comment</label><textarea name="comment" rows="4">${esc(draft)}</textarea>
         <div style="margin-top:10px"><button class="gate" type="submit">Yes: post this</button></div></form>`;
     }
-    case 'post_jira':
+    case 'post':
       return '<div class="panel callout">Ready to post the approved comment. Press Run.</div>';
     case 'reviewers':
     case 'triage':
       return `<div class="panel"><h2>Reviewers</h2>
-        ${c.posted ? `<p class="small muted">${c.posted.live ? `Posted to ${esc(c.jiraKey)} ${esc(fmtTime(c.posted.at))}` : `Dry-run post (${esc(c.posted.why)}). Text: “${esc(c.posted.text)}”`}</p>` : ''}
+        ${c.posted ? `<p class="small muted">${c.posted.live ? `Posted to ${esc(TN())} ${esc(c.taskKey)} ${esc(fmtTime(c.posted.at))}` : `Dry-run post (${esc(c.posted.why)}). Text: “${esc(c.posted.text)}”`}</p>` : ''}
         ${c.reviews.length ? c.reviews.map((r) => `<div class="callout ${r.raw === 'approved' ? 'ok' : r.raw === 'mixed' ? 'warn' : 'warn'}" style="margin-bottom:6px"><b>${esc(r.by)}</b> <span class="pill">${esc(r.raw || r.verdict)}</span> ${esc(r.text)}</div>`).join('') : '<p class="muted small">No replies yet.</p>'}
         ${c.stage === 'triage' && c.status === 'needs-you' ? `<div class="callout gate"><b>Mixed replies.</b> <button data-act="resolve" data-id="${id}" data-as="notes">Treat as feedback fix (P0)</button> <button data-act="resolve" data-id="${id}" data-as="approved">Treat as approved</button></div>` : ''}
         <form data-form="review" data-id="${id}" style="margin-top:10px">
           <div class="grid3"><input name="by" placeholder="who replied"><select name="verdict"><option value="">read it for me</option><option value="approved">approved</option><option value="notes">notes</option><option value="mixed">mixed</option></select><span></span></div>
           <textarea name="text" rows="2" placeholder="what they wrote" style="margin-top:6px"></textarea>
           <div style="margin-top:6px;display:flex;gap:8px"><button type="submit">Record reply</button>
-          ${S.integrations.jira.configured && c.jiraKey ? `<button type="button" data-act="fetch-replies" data-id="${id}">Read replies from Jira</button>` : ''}
+          ${S.providers.tracker.configured && c.taskKey ? `<button type="button" data-act="fetch-replies" data-id="${id}">Read replies from ${esc(TN())}</button>` : ''}
           ${c.reviews.length && c.stage === 'reviewers' ? `<button class="primary" type="button" data-act="run-card" data-id="${id}">Triage</button>` : ''}</div>
         </form></div>`;
     case 'close': {
@@ -670,15 +691,17 @@ VIEWS.audit = async () => {
 
 // ---- Settings
 VIEWS.settings = () => {
-  const s = S.settings; const i = S.integrations;
-  const row = (name, x) => `<tr><td>${name}</td><td><span class="pill ${x.configured ? 'ok' : ''}">${x.configured ? 'configured' : 'off'}</span></td><td class="small mono">${esc((x.needs || []).join(', '))}</td></tr>`;
+  const s = S.settings; const P = S.providers;
+  const pill = (on, yes = 'configured', no = 'off') => `<span class="pill ${on ? 'ok' : ''}">${on ? yes : no}</span>`;
   return `
     <div class="toolbar"><h1>Settings</h1></div>
+    ${P.configError || P.problems.length ? `<div class="callout bad" style="margin-bottom:12px"><b>akaw.config.json</b>: ${[P.configError, ...P.problems].filter(Boolean).map(esc).join('<br>')}</div>` : ''}
     <div class="grid2">
+      <div>
       <form class="panel" data-form="settings">
         <h2>Operator</h2>
         <label>Your name (every yes is recorded under it)</label><input name="operator" value="${esc(s.operator)}">
-        <label>$ per Higgsfield credit (empty: credits show as credits)</label><input name="creditUsdRate" type="number" step="0.0001" value="${esc(s.creditUsdRate ?? '')}">
+        <label>$ per credit (converts $-priced generators; empty: credits show as credits)</label><input name="creditUsdRate" type="number" step="0.0001" value="${esc(s.creditUsdRate ?? '')}">
         <label>Run queue: cards at a time</label><input name="concurrency" type="number" min="1" max="6" value="${esc(s.concurrency || 3)}">
         <h3>Networks</h3>
         <p class="small muted">Exports ship ${(s.lengths || []).join('s, ')}s for every network on the route. Set each network's size cap from its spec; QA checks the bundle against it.</p>
@@ -687,18 +710,36 @@ VIEWS.settings = () => {
         </tbody></table>
         <div style="margin-top:12px"><button class="primary" type="submit">Save settings</button></div>
       </form>
+      <div class="panel"><h2>Toolbox <button class="link small" data-act="toolbox-refresh">check again</button></h2><div id="toolbox" class="small muted">Checking this machine…</div></div>
+      </div>
       <div>
-        <div class="panel"><h2>Connections</h2><p class="small muted">Keys live in <code>.env</code> next to server.js. They never reach this page, the agents or the flow commands. Restart after editing.</p>
-          <table><tbody>${row('Jira', i.jira)}${row('Slack', i.slack)}${row('Google Drive', i.drive)}${row('Box', i.box)}${row('Higgsfield', i.higgsfield)}${row('Miro', i.miro)}</tbody></table>
-          <p class="small">Writes: <span class="pill ${i.allowWrites ? 'bad' : 'wait'}">${i.allowWrites ? 'LIVE' : 'dry-run'}</span> (AKAW_ALLOW_WRITES)</p>
-          ${i.jira.configured ? `<p class="small">Jira: ${esc(i.jira.baseUrl)} · JQL <code>${esc(i.jira.jql)}</code></p>` : ''}</div>
-        <div class="panel"><h2>Your flow</h2><p class="small muted">Akaw runs these in your flow repo. Each gets the spec file, card id and an output folder; writing <code>result.json</code> there attaches links and paths.</p>
-          <dl class="kv"><dt>Repo</dt><dd class="mono">${esc(i.flow.repo || 'not set')}</dd>
-          ${Object.entries(i.flow.commands).map(([k, v]) => `<dt>${esc(k)}</dt><dd class="mono">${esc(v || 'by hand')}</dd>`).join('')}
-          <dt>deploy</dt><dd class="mono">${esc(i.flow.deployCommand || 'not set')} <span class="muted">(shown, never run)</span></dd></dl></div>
+        <div class="panel"><h2>Task tracker</h2>
+          <p><b>${esc(P.tracker.provider === 'none' ? 'None set' : P.tracker.name)}</b> ${P.tracker.provider === 'none' ? '' : pill(P.tracker.configured)}</p>
+          <p class="small muted">Options: ${P.tracker.options.map(esc).join(', ')}. Choose in akaw.config.json; keys in .env (${P.tracker.needs.map((n) => `<code>${esc(n)}</code>`).join(', ') || '—'}).</p>
+          ${Object.entries(P.tracker.details).filter(([, v]) => v).map(([k, v]) => `<div class="small">${esc(k)}: <code>${esc(v)}</code></div>`).join('')}</div>
+        <div class="panel"><h2>Chat</h2>
+          ${P.chat.length ? `<table><tbody>${P.chat.map((c) => `<tr><td>${esc(c.name)}</td><td>${pill(c.configured)}</td><td class="small">${(c.events || []).map(esc).join(', ')}</td><td class="small mono">${c.needs.map(esc).join(', ')}</td></tr>`).join('')}</tbody></table>` : '<p class="small muted">No chat targets.</p>'}
+          <p class="small muted">Options: ${P.chatOptions.map(esc).join(', ')}. Events: ${P.chatEvents.map(esc).join(', ')}. Writes are <b>${P.allowWrites ? 'LIVE' : 'dry-run'}</b> (AKAW_ALLOW_WRITES).</p></div>
+        <div class="panel"><h2>Flow steps</h2><p class="small muted">Each step runs by hand, as a command, as Claude Code headless, as an n8n webhook, or (preview) as built-in capture.</p>
+          <dl class="kv">${Object.entries(P.steps).map(([k, v]) => `<dt>${esc(k)}</dt><dd class="small">${esc(v.describe)}</dd>`).join('')}
+          <dt>deploy</dt><dd class="small mono">${esc(P.deployCommand || 'not set')} <span class="muted">(shown, never run)</span></dd>
+          <dt>flow repo</dt><dd class="small mono">${esc(P.flowRepo || 'not set')}</dd></dl></div>
+        <div class="panel"><h2>Art generators</h2>
+          ${P.generators.length ? `<table><tbody>${P.generators.map((g) => `<tr><td><b>${esc(g.label)}</b><div class="small muted">${esc(g.providerName)}${g.model ? ` · ${esc(g.model)}` : ''}</div></td><td>${pill(g.configured)}</td><td class="small">${g.costPerOutput != null ? `${g.costPerOutput} ${g.unit === 'usd' ? '$' : 'credits'} / output` : 'no price: estimate per run'}</td><td class="small mono">${g.needs.map(esc).join(', ')}</td></tr>`).join('')}</tbody></table>` : '<p class="small muted">None. Add fal, Replicate, Google AI Studio, n8n, a command or Claude Code in akaw.config.json.</p>'}</div>
+        <div class="panel"><h2>Library sources</h2><p class="small">Local folders ${pill(true, 'always')} · Google Drive ${pill(P.drive.configured)} · Box ${pill(P.box.configured)}</p></div>
       </div>
     </div>`;
 };
+AFTER.settings = () => loadToolbox(false);
+
+async function loadToolbox(refresh) {
+  const el = $('#toolbox');
+  if (!el) return;
+  try {
+    const { tools } = await api('GET', `/api/toolbox${refresh ? '?refresh=1' : ''}`);
+    el.innerHTML = `<table><tbody>${tools.map((t) => `<tr><td><b>${esc(t.label)}</b></td><td><span class="pill ${t.available ? 'ok' : ''}">${t.available ? 'yes' : 'no'}</span></td><td class="small">${esc(t.for)}${t.version && t.version !== 'present' ? `<div class="muted mono">${esc(t.version)}</div>` : ''}${t.note ? `<div class="muted">${esc(t.note)}</div>` : ''}</td></tr>`).join('')}</tbody></table>`;
+  } catch (e) { el.textContent = e.message; }
+}
 const netRow = (n, k) => `<tr><td><input name="net_name_${k}" value="${esc(n.name)}" placeholder="add network"></td><td><input type="checkbox" name="net_ua_${k}" ${(n.routes || []).includes('UA') ? 'checked' : ''}></td><td><input type="checkbox" name="net_rt_${k}" ${(n.routes || []).includes('RT') ? 'checked' : ''}></td><td><input name="net_cap_${k}" type="number" step="0.1" value="${esc(n.sizeCapMB ?? '')}" placeholder="?"></td></tr>`;
 
 // ---------------------------------------------------------------- actions
@@ -728,13 +769,14 @@ const ACTIONS = {
     if (el.checked) { if (!k.includes(el.value)) k.push(el.value); } else UI.start.kit = k.filter((x) => x !== el.value);
     previewSpec();
   },
-  'jira-preview': async () => {
+  'toolbox-refresh': () => loadToolbox(true),
+  'tracker-preview': async () => {
     try {
-      const p = await api('POST', '/api/jira/preview');
-      $('#modal').innerHTML = `<div class="drawer-head"><h1>Jira sync preview</h1><button data-act="close-modal">✕</button></div>
+      const p = await api('POST', '/api/tracker/preview');
+      $('#modal').innerHTML = `<div class="drawer-head"><h1>${esc(TN())} sync preview</h1><button data-act="close-modal">✕</button></div>
         <p class="muted">Read-only. Nothing enters the flow until you import. ${p.rows.length} open card(s); ${p.rows.filter((r) => !r.cardId).length} new.</p>
-        <form data-form="jira-import"><table><thead><tr><th></th><th>Key</th><th>Summary</th><th>Priority</th><th>Game</th><th>Sprint ends</th></tr></thead><tbody>
-        ${p.rows.map((r) => `<tr><td>${r.cardId ? `<span class="pill ok">${esc(r.cardId)}</span>` : `<input type="checkbox" name="keys" value="${esc(r.key)}" checked>`}</td><td class="mono">${esc(r.key)}</td><td>${esc(r.summary)}</td><td>${esc(r.priority || '')}</td><td>${r.gameGuess ? esc(gameName(r.gameGuess)) : `<span class="pill warn">${esc(r.gameQuestion ? 'ask' : '?')}</span>`}</td><td>${esc(fmtTime(r.sprintEnd))}</td></tr>`).join('')}
+        <form data-form="tracker-import"><table><thead><tr><th></th><th>Task</th><th>Summary</th><th>Priority</th><th>Game</th><th>Sprint end / due</th></tr></thead><tbody>
+        ${p.rows.map((r) => `<tr><td>${r.cardId ? `<span class="pill ok">${esc(r.cardId)}</span>` : `<input type="checkbox" name="keys" value="${esc(r.key)}" checked>`}</td><td class="mono">${esc(r.key)}</td><td>${esc(r.summary)}</td><td>${esc(r.priority || '')}</td><td>${r.gameGuess ? esc(gameName(r.gameGuess)) : `<span class="pill warn">${esc(r.gameQuestion ? 'ask' : '?')}</span>`}</td><td>${esc(fmtTime(r.due))}</td></tr>`).join('')}
         </tbody></table><div style="margin-top:12px"><button class="primary" type="submit">Import selected</button></div></form>`;
       $('#modal-wrap').hidden = false;
     } catch (e) { toast(e.message, true); }
@@ -819,17 +861,23 @@ const FORMS = {
     const ok = await act(() => api('POST', `/api/cards/${f.dataset.id}/gate/${f.dataset.gate}`, body), 'Recorded your yes');
     if (ok && f.dataset.gate !== 'deploy') await act(() => api('POST', `/api/cards/${f.dataset.id}/run`));
   },
+  generate: async (f, fd) => {
+    const btn = f.querySelector('button[type=submit]'); btn.disabled = true; btn.textContent = 'Generating…';
+    const r = await act(() => api('POST', `/api/cards/${f.dataset.id}/generate`, { generatorId: fd.get('generatorId'), prompt: fd.get('prompt'), n: fd.get('n'), estimate: fd.get('estimate') || null }));
+    if (r) toast(`${r.assets.length} file(s) added to the kit as Project cards`);
+    else { btn.disabled = false; btn.textContent = 'Generate inside the ceiling'; }
+  },
   credits: (f, fd) => act(() => api('POST', `/api/cards/${f.dataset.id}/credits`, { credits: fd.get('credits'), note: fd.get('note') }), 'Credits recorded'),
   review: (f, fd) => act(() => api('POST', `/api/cards/${f.dataset.id}/review`, { by: fd.get('by'), text: fd.get('text'), verdict: fd.get('verdict') || undefined }), 'Reply recorded'),
   'send-back': (f, fd) => act(() => api('POST', `/api/cards/${f.dataset.id}/send-back`, { stage: fd.get('stage'), note: fd.get('note') }), 'Sent back'),
-  'jira-import': async (f, fd) => {
-    const r = await act(() => api('POST', '/api/jira/import', { keys: fd.getAll('keys') }));
+  'tracker-import': async (f, fd) => {
+    const r = await act(() => api('POST', '/api/tracker/import', { keys: fd.getAll('keys') }));
     if (r) { toast(`Imported ${r.created.length} card(s)`); $('#modal-wrap').hidden = true; }
   },
   scan: async (f, fd) => {
     const btn = f.querySelector('button[type=submit]'); btn.disabled = true; btn.textContent = 'Scanning…';
     const s = await act(() => api('POST', '/api/scans', { sources: String(fd.get('sources') || '').split('\n').map((x) => x.trim()).filter(Boolean), gameId: fd.get('gameId') || null, clientId: fd.get('clientId') || null }));
-    if (s) { UI.scanId = s.id; render(); }
+    if (s) { UI.scanId = s.id; render(); } else { btn.disabled = false; btn.textContent = 'Scan'; }
   },
   'lib-filters': (f, fd) => { UI.libFilters = Object.fromEntries(['q', 'gameId', 'kind', 'level', 'status'].map((k) => [k, fd.get(k) || ''])); render(); },
   'asset-edit': (f, fd) => act(() => api('POST', `/api/assets/${encodeURIComponent(f.dataset.id)}`, { kind: fd.get('kind'), gameIds: fd.getAll('gameIds'), useFor: fd.get('useFor'), dont: fd.get('dont'), tags: csv(fd.get('tags')), flags: fd.getAll('flags') }), 'Saved'),

@@ -2,7 +2,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { ROOT, integrationStatus } from './config.js';
+import { ROOT } from './config.js';
+import { validateAppConfig } from './appconfig.js';
+import { TRACKERS } from './providers/trackers.js';
+import { CHATS, CHAT_EVENTS, chat as chatFor } from './providers/chat.js';
+import { GENERATOR_PROVIDERS, generatorConfigured } from './generators.js';
+import { describeStep } from './runners.js';
+import { detectTools } from './toolbox.js';
 import { STAGES, BOARD_ROWS, TIERS } from './stages.js';
 import { KINDS, LEVELS, STATUSES, FLAGS } from './library.js';
 import { evaluate, describeCheck, CHECK_KINDS, SEVERITIES, LAYERS } from './guardrails.js';
@@ -35,12 +41,39 @@ export function createApp({ store, cfg, flow, library }) {
     games: flow.games,
     clients: flow.clients,
     settings: flow.settings,
-    integrations: integrationStatus(cfg),
+    providers: providerStatus(),
     library: { count: library.assets.length, kinds: KINDS, levels: LEVELS, statuses: STATUSES, flags: FLAGS },
     lastScan: library.scans[0] ? { id: library.scans[0].id, at: library.scans[0].at } : null,
     gameStats: gameStats(),
     rulesMeta: { checkKinds: CHECK_KINDS, severities: SEVERITIES, layers: LAYERS },
   }));
+
+  function providerStatus() {
+    const env = cfg.env || {};
+    const t = flow.trackerConf;
+    const details = { jira: { jql: t.jql }, asana: { projectGid: t.projectGid }, monday: { boardId: t.boardId } }[t.provider] || {};
+    return {
+      allowWrites: cfg.allowWrites,
+      configError: flow.app.error,
+      problems: validateAppConfig(flow.app),
+      tracker: { provider: t.provider, name: flow.trackerName, configured: flow.trackerLive, needs: flow.tracker.secrets, details, options: Object.keys(TRACKERS).filter((k) => k !== 'none') },
+      chat: flow.app.chat.map((c) => {
+        let p = null;
+        try { p = chatFor(c); } catch { /* unknown provider */ }
+        return { provider: c.provider, name: p?.name || `${c.provider} (unknown)`, configured: p ? p.configured(c, env) : false, events: c.events, needs: p ? [c.secretEnv || p.secretEnv].filter(Boolean).concat(c.provider === 'telegram' ? ['chatId in config'] : []) : [] };
+      }),
+      chatOptions: Object.keys(CHATS),
+      chatEvents: CHAT_EVENTS,
+      steps: Object.fromEntries(Object.entries(flow.app.steps).map(([k, v]) => [k, { runner: v.runner, describe: describeStep(v) }])),
+      deployCommand: flow.app.deploy?.command || null,
+      flowRepo: flow.app.flowRepo,
+      generators: flow.app.generators.map((g) => ({ id: g.id, label: g.label || g.id, provider: g.provider, providerName: GENERATOR_PROVIDERS[g.provider]?.name || g.provider, model: g.model || null, kind: g.kind || 'image', unit: g.unit || 'credits', costPerOutput: g.costPerOutput ?? null, configured: generatorConfigured(g, env), needs: GENERATOR_PROVIDERS[g.provider]?.secretEnv ? [g.secretEnv || GENERATOR_PROVIDERS[g.provider].secretEnv] : [] })),
+      drive: { configured: Boolean(cfg.drive.token || cfg.drive.apiKey) },
+      box: { configured: Boolean(cfg.box.token) },
+    };
+  }
+
+  let toolCache = null;
 
   function gameStats() {
     const out = {};
@@ -59,7 +92,8 @@ export function createApp({ store, cfg, flow, library }) {
   // ---- cards --------------------------------------------------------------
   on('GET', '/api/cards/:id', ({ id }) => {
     const card = flow.card(id);
-    return { card: flow.view(card), kit: flow.kitAssets(card), game: flow.game(card.gameId), audit: store.readAudit(100, (e) => e.cardId === id) };
+    const taskUrl = card.taskUrl || (card.taskKey ? flow.tracker.url(flow.trackerConf, cfg.env || {}, card.taskKey) : null);
+    return { card: { ...flow.view(card), taskUrl }, kit: flow.kitAssets(card), game: flow.game(card.gameId), audit: store.readAudit(100, (e) => e.cardId === id) };
   });
   on('POST', '/api/spec/preview', (_, b) => flow.specPreview(b));
   on('POST', '/api/cards', (_, b) => flow.view(flow.createCard(b, actor())));
@@ -78,9 +112,17 @@ export function createApp({ store, cfg, flow, library }) {
   on('POST', '/api/batches/seal', () => flow.sealBatch(actor()));
   on('POST', '/api/batches/:id/deployed', ({ id }, b) => flow.markDeployed(id, b, actor()));
 
-  // ---- Jira ---------------------------------------------------------------
-  on('POST', '/api/jira/preview', async () => flow.jiraPreview(actor()));
-  on('POST', '/api/jira/import', (_, b) => ({ created: flow.jiraImport(b.keys || [], actor()) }));
+  // ---- task tracker, art, toolbox -----------------------------------------
+  on('POST', '/api/tracker/preview', async () => flow.trackerPreview(actor()));
+  on('POST', '/api/tracker/import', (_, b) => ({ created: flow.trackerImport(b.keys || [], actor()) }));
+  on('POST', '/api/cards/:id/generate', async ({ id }, b) => {
+    const r = await flow.generateArt(id, b, actor());
+    return { card: flow.view(r.card), assets: r.assets };
+  });
+  on('GET', '/api/toolbox', async (_, __, q) => {
+    if (!toolCache || q.get('refresh')) toolCache = { at: new Date().toISOString(), tools: await detectTools(flow.app) };
+    return toolCache;
+  });
 
   // ---- guardrails ---------------------------------------------------------
   on('GET', '/api/rules', () => ({
@@ -148,6 +190,7 @@ export function createApp({ store, cfg, flow, library }) {
       const url = new URL(req.url, `http://${req.headers.host}`);
       if (url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
       if (req.method === 'GET' && url.pathname.startsWith('/preview/')) return servePreview(res, decodeURIComponent(url.pathname.slice(9)));
+      if (req.method === 'GET' && url.pathname === '/run-file') return serveRunFile(res, url.searchParams.get('p') || '');
       return serveStatic(res, url.pathname);
     } catch (err) {
       return send(res, err.status || 500, { error: err.message });
@@ -178,6 +221,17 @@ export function createApp({ store, cfg, flow, library }) {
     if (!type || !/^(image|video|audio)\//.test(type)) return send(res, 415, { error: 'No preview for this type' });
     res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'max-age=60', 'X-Content-Type-Options': 'nosniff' });
     fs.createReadStream(p).pipe(res);
+  }
+
+  // Capture outputs (GIF, mp4, screenshots) under data/runs only.
+  function serveRunFile(res, p) {
+    const runs = path.join(cfg.dataDir, 'runs');
+    const file = path.resolve(p);
+    if (!file.startsWith(runs + path.sep) || !fs.existsSync(file)) return send(res, 404, { error: 'Not found' });
+    const type = MIME[path.extname(file).toLowerCase()];
+    if (!type || !/^(image|video)\//.test(type)) return send(res, 415, { error: 'No preview for this type' });
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'max-age=60', 'X-Content-Type-Options': 'nosniff' });
+    fs.createReadStream(file).pipe(res);
   }
 
   function serveStatic(res, pathname) {

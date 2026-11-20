@@ -1,0 +1,17 @@
+{
+  "template": {
+    "src": "file:///Users/YOU/Templates/endcard.aep",
+    "composition": "EndCard_1080x1920"
+  },
+  "assets": [
+    { "type": "data", "layerName": "WIN_LINE", "property": "Source Text", "value": "{{fields.winLine}}" },
+    { "type": "data", "layerName": "PRIZE", "property": "Source Text", "value": "{{fields.prize}}" },
+    { "type": "data", "layerName": "TITLE", "property": "Source Text", "value": "{{card.title}}" }
+  ],
+  "actions": {
+    "postrender": [
+      { "module": "@nexrender/action-encode", "preset": "mp4", "output": "encoded.mp4" },
+      { "module": "@nexrender/action-copy", "input": "encoded.mp4", "output": "{{out}}/endcard.mp4" }
+    ]
+  }
+}

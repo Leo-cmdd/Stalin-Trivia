@@ -31,7 +31,7 @@ async function toConceptLock(flow, by = 'op') {
 }
 
 test('a card goes through all 17 steps with four yeses', async () => {
-  const { flow, store } = makeEngine();
+  const { flow, store } = makeEngine({}, { chat: [{ provider: 'slack', events: ['delivered'] }] });
   const by = 'op';
   const card = await toConceptLock(flow);
 
@@ -68,7 +68,7 @@ test('a card goes through all 17 steps with four yeses', async () => {
   assert.throws(() => flow.approveGate(card.id, 'link_review', { playLink: 'https://abc.trycloudflare.com/x', comment: 'https://abc.trycloudflare.com/x' }, by), /tunnel/);
   assert.throws(() => flow.approveGate(card.id, 'link_review', { playLink: 'https://play.example.com/p/1', comment: 'no link here' }, by), /carry the play link/);
   flow.approveGate(card.id, 'link_review', { playLink: 'https://play.example.com/p/1', comment: 'Play Now: https://play.example.com/p/1' }, by);
-  assert.equal(card.stage, 'post_jira');
+  assert.equal(card.stage, 'post');
 
   await flow.runCard(card.id, by);
   assert.equal(card.stage, 'reviewers');
@@ -91,7 +91,7 @@ test('a card goes through all 17 steps with four yeses', async () => {
   assert.ok(card.exportReceipt.fingerprint.startsWith('sha256:'));
 
   const actions = store.readAudit(500).map((e) => e.action);
-  for (const a of ['gate.concept_lock', 'gate.deploy', 'gate.link_review', 'gate.close', 'credits.quote', 'credits.refused', 'jira.comment.dry-run', 'slack.post.dry-run']) {
+  for (const a of ['gate.concept_lock', 'gate.deploy', 'gate.link_review', 'gate.close', 'credits.quote', 'credits.refused', 'task.comment.dry-run', 'chat.post.dry-run']) {
     assert.ok(actions.includes(a), `audit has ${a}`);
   }
 });
@@ -116,7 +116,7 @@ test('notes come back as a P0 card; mixed replies wait for you', async () => {
   assert.equal(card.status, 'needs-you');
 
   flow.resolveMixed(card.id, 'notes', by);
-  assert.equal(card.stage, 'jira');
+  assert.equal(card.stage, 'intake');
   assert.equal(card.version, 2);
   assert.equal(flow.view(card).tier, 'P0');
   assert.equal(card.feedback.length, 1);
@@ -161,4 +161,14 @@ test('copy extraction reads visible text and JS strings, not code names', () => 
   assert.ok(lines.includes('You Won!'));
   assert.ok(lines.includes('BRAVO'));
   assert.ok(!lines.includes('btnCashOut'));
+});
+
+test('cards saved by v0.1 (Jira-named stages and fields) migrate on start', async () => {
+  const { Flow } = await import('../src/flow.js');
+  const { store, library, cfg } = makeEngine();
+  store.set('cards', [{ id: 'AK-0001', title: 'old', stage: 'post_jira', status: 'idle', jiraKey: 'MAR-1', jiraPriority: 'High', log: [{ stage: 'jira', msg: 'x' }], gates: {}, artifacts: {}, reviews: [] }]);
+  const flow = new Flow(store, cfg, library);
+  const c = flow.card('AK-0001');
+  assert.deepEqual([c.stage, c.taskKey, c.priority, c.log[0].stage], ['post', 'MAR-1', 'High', 'intake']);
+  assert.equal(c.jiraKey, undefined);
 });
