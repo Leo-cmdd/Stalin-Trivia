@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="akaw-token" content="__AKAW_TOKEN__">
+  <title>Akaw</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ff7a45'/%3E%3Cpath d='M9 23 16 8l7 15M12 18h8' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app">
+    <nav class="side">
+      <div class="brand"><span class="logo">A</span><div><strong>Akaw</strong><small>playable flow</small></div></div>
+      <a href="#/board" data-nav="board">Board</a>
+      <a href="#/start" data-nav="start">Start a playable</a>
+      <a href="#/library" data-nav="library">Library</a>
+      <a href="#/games" data-nav="games">Clients &amp; games</a>
+      <a href="#/onboard" data-nav="onboard">Onboard a game</a>
+      <a href="#/rules" data-nav="rules">Guardrails</a>
+      <a href="#/audit" data-nav="audit">Audit</a>
+      <a href="#/settings" data-nav="settings">Settings</a>
+      <div class="side-foot" id="side-foot"></div>
+    </nav>
+    <main id="main"><p class="muted pad">Loading…</p></main>
+  </div>
+  <div id="drawer-wrap" class="drawer-wrap" hidden>
+    <div class="drawer-scrim" data-act="close-drawer"></div>
+    <aside id="drawer" class="drawer" role="dialog" aria-modal="true"></aside>
+  </div>
+  <div id="modal-wrap" class="modal-wrap" hidden>
+    <div class="drawer-scrim" data-act="close-modal"></div>
+    <div id="modal" class="modal" role="dialog" aria-modal="true"></div>
+  </div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

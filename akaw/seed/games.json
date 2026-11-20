@@ -1,0 +1,52 @@
+[
+  {
+    "id": "solitaire-cash",
+    "name": "Solitaire Cash",
+    "clientId": "papaya",
+    "aliases": [],
+    "codes": [],
+    "cores": [
+      { "id": "klondike", "name": "Klondike", "keywords": ["klondike"], "template": null }
+    ],
+    "approvedPrizes": [],
+    "legalLines": [],
+    "requiredElements": ["legal line", "store badges"],
+    "palette": [],
+    "fonts": [],
+    "badges": [],
+    "reviewers": [],
+    "winLine": "You Can Win"
+  },
+  {
+    "id": "mahjong-cash",
+    "name": "Mahjong Cash",
+    "clientId": "papaya",
+    "aliases": [],
+    "codes": [],
+    "cores": [],
+    "approvedPrizes": [],
+    "legalLines": [],
+    "requiredElements": ["legal line", "store badges"],
+    "palette": [],
+    "fonts": [],
+    "badges": [],
+    "reviewers": [],
+    "winLine": "You Can Win"
+  },
+  {
+    "id": "cash-arcade",
+    "name": "Cash Arcade",
+    "clientId": "papaya",
+    "aliases": [],
+    "codes": [],
+    "cores": [],
+    "approvedPrizes": [],
+    "legalLines": [],
+    "requiredElements": ["legal line", "store badges"],
+    "palette": [],
+    "fonts": [],
+    "badges": [],
+    "reviewers": [],
+    "winLine": "You Can Win"
+  }
+]

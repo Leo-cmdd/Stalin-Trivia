@@ -1,0 +1,189 @@
+[
+  {
+    "id": "team-real-cash",
+    "scope": "team",
+    "rule": "Real cash only, never gold coins, in the picture and in the sound.",
+    "severity": "block",
+    "check": { "kind": "forbidden-phrase", "phrases": ["gold coin", "gold coins"] },
+    "source": "CLAUDE.md",
+    "owner": "",
+    "confirm": null,
+    "exceptions": []
+  },
+  {
+    "id": "team-no-em-dash",
+    "scope": "team",
+    "rule": "No em dashes in copy. Use a full stop or a comma.",
+    "severity": "block",
+    "check": { "kind": "forbidden-phrase", "phrases": ["—"] },
+    "source": "CLAUDE.md",
+    "owner": "",
+    "confirm": null,
+    "exceptions": []
+  },
+  {
+    "id": "team-ai-footage",
+    "scope": "team",
+    "rule": "Any phone in AI footage is a green screen; the app screen goes on afterwards. People in AI footage are adults (25 to 60) and look ordinary.",
+    "severity": "warn",
+    "check": { "kind": "manual" },
+    "source": "CLAUDE.md",
+    "owner": "",
+    "confirm": null,
+    "exceptions": []
+  },
+  {
+    "id": "team-credits-per-brief",
+    "scope": "team",
+    "rule": "AI credits are approved per brief before anything is generated. Quote one number, wait for a yes. (Enforced by the credit hook at concept lock.)",
+    "severity": "warn",
+    "check": { "kind": "manual" },
+    "source": "CLAUDE.md, credit hook",
+    "owner": "",
+    "confirm": null,
+    "exceptions": []
+  },
+  {
+    "id": "team-legal-lines",
+    "scope": "team",
+    "rule": "Legal lines are never reworded or removed, only moved.",
+    "severity": "block",
+    "check": { "kind": "required-element", "elements": ["legal line"] },
+    "source": "locked/legal-lines.md",
+    "owner": "",
+    "confirm": "Which games use which lines?",
+    "exceptions": []
+  },
+  {
+    "id": "team-approved-prizes",
+    "scope": "team",
+    "rule": "Prize figures must be on an approved card.",
+    "severity": "block",
+    "check": { "kind": "approved-prize" },
+    "source": "Finished-task cards: Money on screen: approved",
+    "owner": "",
+    "confirm": "Who owns each game's list?",
+    "exceptions": []
+  },
+  {
+    "id": "team-extra-tick",
+    "scope": "team",
+    "rule": "A new mechanic, a versus, a near miss or a misleading cut needs an extra tick at the concept lock.",
+    "severity": "needs-signoff",
+    "check": { "kind": "human-tick", "gate": "concept_lock", "archetypes": ["near miss", "versus"], "newMechanic": true, "misleadingCut": true },
+    "source": "Playable Flow v2",
+    "owner": "",
+    "confirm": null,
+    "exceptions": []
+  },
+  {
+    "id": "team-library-assets",
+    "scope": "team",
+    "rule": "Use Library and Locked assets as they are. A non-library asset is only used when you say so.",
+    "severity": "needs-signoff",
+    "check": { "kind": "allowed-assets", "levels": ["Library", "Locked"] },
+    "source": "CLAUDE.md work habits",
+    "owner": "",
+    "confirm": null,
+    "exceptions": []
+  },
+  {
+    "id": "team-cash-arcade-song",
+    "scope": "team",
+    "rule": "The branded song is for Cash Arcade only.",
+    "severity": "block",
+    "check": { "kind": "asset-tag-only", "tag": "cash-arcade-song", "games": ["cash-arcade"] },
+    "source": "library/music/cash-arcade-song.md",
+    "owner": "",
+    "confirm": null,
+    "exceptions": []
+  },
+  {
+    "id": "team-no-secrets",
+    "scope": "team",
+    "rule": "No keys, tokens or passwords in code, history or bundles.",
+    "severity": "block",
+    "check": { "kind": "no-secrets" },
+    "source": "15 Oct rule",
+    "owner": "",
+    "confirm": null,
+    "exceptions": []
+  },
+  {
+    "id": "papaya-you-can-win",
+    "scope": "client:papaya",
+    "rule": "Playable copy says \"You Can Win\", never \"You Won\".",
+    "severity": "block",
+    "check": { "kind": "forbidden-phrase", "phrases": ["you won"] },
+    "source": "Client rule, 30 Sep",
+    "owner": "",
+    "confirm": "Which client or game owns this rule?",
+    "exceptions": []
+  },
+  {
+    "id": "papaya-copy-flags",
+    "scope": "client:papaya",
+    "rule": "The copy check also flags \"guaranteed\", \"withdraw\" and \"BRAVO\".",
+    "severity": "warn",
+    "check": { "kind": "forbidden-phrase", "phrases": ["guaranteed", "withdraw", "bravo"] },
+    "source": "Playable Copy Check, 11 Oct",
+    "owner": "",
+    "confirm": null,
+    "exceptions": []
+  },
+  {
+    "id": "papaya-round-length",
+    "scope": "client:papaya",
+    "rule": "Rounds run up to 30s, longer ones up to 45s. Anything longer needs an exception naming who approved it and when.",
+    "severity": "block",
+    "check": { "kind": "max-length", "seconds": 45, "softSeconds": 30 },
+    "source": "Client rule, 27 Sep",
+    "owner": "",
+    "confirm": "Which client or network owns this rule?",
+    "exceptions": []
+  },
+  {
+    "id": "papaya-paypal-toast",
+    "scope": "client:papaya",
+    "rule": "The \"sent to your PayPal\" toast needs its own sign-off on record.",
+    "severity": "needs-signoff",
+    "check": { "kind": "forbidden-phrase", "phrases": ["sent to your paypal"] },
+    "source": "Playable Copy Check, 11 Oct",
+    "owner": "",
+    "confirm": "Is a sign-off on file, and for which game?",
+    "exceptions": []
+  },
+  {
+    "id": "rt-no-store-badges",
+    "scope": "channel:RT",
+    "rule": "RT playables carry no store badges.",
+    "severity": "block",
+    "check": { "kind": "forbidden-element", "elements": ["store badges"] },
+    "source": "13 Oct rule",
+    "owner": "",
+    "confirm": "Confirm it is per channel.",
+    "exceptions": []
+  },
+  {
+    "id": "sc-no-cash-out",
+    "scope": "game:solitaire-cash",
+    "rule": "No \"Cash Out\" in copy. The product has no cash-out.",
+    "severity": "block",
+    "check": { "kind": "forbidden-phrase", "phrases": ["cash out", "cash-out", "cashout"] },
+    "source": "CLAUDE.md",
+    "owner": "",
+    "confirm": "Does any other game have a cash-out?",
+    "exceptions": []
+  },
+  {
+    "id": "sc-no-ai-gameplay",
+    "scope": "game:solitaire-cash",
+    "rule": "Do not generate gameplay with AI. Cards and physics must be real.",
+    "severity": "block",
+    "check": { "kind": "asset-flag", "flags": ["ai-gameplay"] },
+    "source": "library/gameplay/solitaire-gameplay.md",
+    "owner": "",
+    "confirm": "Same rule for the other games?",
+    "exceptions": []
+  }
+]

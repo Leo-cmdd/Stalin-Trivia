@@ -1,0 +1,7 @@
+{
+  "operator": "operator",
+  "creditUsdRate": null,
+  "concurrency": 3,
+  "lengths": [15, 30, 59],
+  "networks": []
+}

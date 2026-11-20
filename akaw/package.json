@@ -1,0 +1,15 @@
+{
+  "name": "akaw",
+  "version": "0.1.0",
+  "description": "Akaw: local playable-ads flow generator with an operator dashboard",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.js",
+    "scan:secrets": "node scripts/scan-secrets.js",
+    "reset": "node scripts/reset-data.js"
+  }
+}

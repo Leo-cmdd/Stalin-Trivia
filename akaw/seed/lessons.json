@@ -1,0 +1,15 @@
+[
+  {
+    "id": "lesson-headline-cta",
+    "status": "candidate",
+    "proposedBy": "creative lead (proposal on the board)",
+    "text": "Every playable opens with a headline and a CTA button over the gameplay.",
+    "rule": {
+      "id": "team-headline-cta",
+      "scope": "team",
+      "rule": "Every playable opens with a headline and a CTA button over the gameplay.",
+      "severity": "warn",
+      "check": { "kind": "required-element", "elements": ["headline", "cta"] }
+    }
+  }
+]
